@@ -1,4 +1,3 @@
-
 import os
 import sys
 import re
@@ -78,6 +77,7 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
     d_read_genomic_pos = defaultdict(lambda: defaultdict(str))
     fh_bed = open(bed, "r")
     d_desc = defaultdict(lambda: defaultdict(list))
+    print(str(datetime.datetime.now()), "reading BED file")
     for line in fh_bed:
         f = line.rstrip('\n').split('\t')
         d_desc[f[0] + "\t" + f[5]][(int(f[1]), int(f[2]))].append(f[3])
@@ -90,10 +90,10 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
         d_read_genomic_pos[readid][transcriptid_pos] = pos
     fh_bed.close()
     print("size new:", sys.getsizeof(d_desc))
-    print("Read bed file")
+    print(str(datetime.datetime.now()), "Read bed file")
 
     d_readlocus_transcripts = defaultdict(lambda: defaultdict(list))
-    l_locipos = []
+    d_locipos = {}
     d_locireads = {}
     print(str(datetime.datetime.now()), "merging overlapping alignments")
     n_locus = 0
@@ -124,10 +124,10 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
 
         for pos in t_merged:
             [chromid, strand] = chrom.split("\t")
-            l_locipos.append(':'.join([chromid,
+            d_locipos[n_locus] = ':'.join([chromid,
                                        str(pos[0]),
                                        str(pos[1]),
-                                       strand]))
+                                       strand])
             d_longest_alignments = defaultdict(int)
             # choose per locus per transcript only one longest alignment
             for alignment in set(d_mergeddesc[pos[0]]):
@@ -152,45 +152,53 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
             #                    ";".join(l_alignments) + "\n")
             n_locus += 1
 
-
+    print("Qualified loci: ", len(sorted({k: v for k, v in d_locireads.items() if len(v) >= min_locus_size}.items(),
+                                         key=lambda kv: (len(kv[1]), kv[0]), reverse=True)))
     print(str(datetime.datetime.now()), "start 1st iteration of CRGs")
     n_crg = 0
     d_uniq_crg_locus_reads = defaultdict(lambda: defaultdict())
+    d_uniq_crg_locus_lengths = {}
     for n_locus, l_locusreads in sorted({k: v for k, v in d_locireads.items() if len(v) >= min_locus_size}.items(),
                                         key=lambda kv: (len(kv[1]), kv[0]), reverse=True):
         already_crg_member = False
         l_matched_crgs = []
         for crgid, d_crgloci in d_uniq_crg_locus_reads.items():
             overlap_all_loci = True
-            for locusid, l_crg_locureads in d_crgloci.items():
-                # if there are significantly more reads in CRG than in locus or otherway around
-                if len(l_crg_locureads) * crg_share_threshold > len(l_locusreads) or \
-                        len(l_locusreads) * crg_share_threshold > len(l_crg_locureads):
-                    overlap_all_loci = False
-                    break
-                n_common_reads = len(l_locusreads.intersection(l_crg_locureads))
-                if n_common_reads == 0:
-                    overlap_all_loci = False
-                    break
-                n_union_reads = len(l_crg_locureads.union(l_locusreads))
-                # jaccard similarity score, skip the whole crg even if one of the locus doesn't overlap enough
-                if n_common_reads / float(n_union_reads) < crg_share_threshold:
-                    overlap_all_loci = False
-                    break
-            if overlap_all_loci:
-                # add to l_uniq_crgloci only if there was no 100% identical locus already present in list
-                # identical loci are multi-mapped loci with the same set of identical set of multi-mapped reads
-                # do not add them to l_uniq_crgloci so that next time skip scanning same read-set multiple times
-                # d_uniq_crg_locus_reads[crgid][n_locus] = l_locusreads
-                l_matched_crgs.append(crgid)
-                already_crg_member = True
+            if d_uniq_crg_locus_lengths[crgid] * crg_share_threshold <= len(l_locusreads) and \
+                    len(l_locusreads) * crg_share_threshold <= d_uniq_crg_locus_lengths[crgid]:
+                for locusid, l_crg_locureads in d_crgloci.items():
+                    # # if there are significantly more reads in CRG than in locus or otherway around
+                    # if len(l_crg_locureads) * crg_share_threshold > len(l_locusreads) or \
+                    #         len(l_locusreads) * crg_share_threshold > len(l_crg_locureads):
+                    #     overlap_all_loci = False
+                    #     break
+                    n_common_reads = len(l_locusreads.intersection(l_crg_locureads))
+                    if n_common_reads == 0:
+                        overlap_all_loci = False
+                        break
+                    n_union_reads = len(l_crg_locureads.union(l_locusreads))
+                    # jaccard similarity score, skip the whole crg even if one of the locus doesn't overlap enough
+                    if n_common_reads / float(n_union_reads) < crg_share_threshold:
+                        overlap_all_loci = False
+                        break
+                if overlap_all_loci:
+                    # add to l_uniq_crgloci only if there was no 100% identical locus already present in list
+                    # identical loci are multi-mapped loci with the same set of identical set of multi-mapped reads
+                    # do not add them to l_uniq_crgloci so that next time skip scanning same read-set multiple times
+                    # d_uniq_crg_locus_reads[crgid][n_locus] = l_locusreads
+                    l_matched_crgs.append(crgid)
+                    already_crg_member = True
         # n_locus is not a member of any crg, hence create a new crg
         if not already_crg_member:
-            # d_uniq_crg_locus_reads[n_crg][n_locus] = l_locusreads
             l_matched_crgs.append(n_crg)
             n_crg += 1
         for matched_crg in l_matched_crgs:
             d_uniq_crg_locus_reads[matched_crg][n_locus] = l_locusreads
+            t = 0
+            for l, r in d_uniq_crg_locus_reads[matched_crg].items():
+                t += len(r)
+            a = t/float(len(d_uniq_crg_locus_reads[matched_crg]))
+            d_uniq_crg_locus_lengths[matched_crg] = a
     print(str(datetime.datetime.now()), "done 1st iteration of CRGs")
 
     d_isolated_loci = {}  # loci that are separated from crg because of not enough overall share
@@ -211,7 +219,6 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
             d_locus_crg_share[locusid][crgid] = locus_share
 
     print(str(datetime.datetime.now()), "start 2st iteration of CRGs")
-    # print(str(datetime.datetime.now()), "Start: finding isolated CRG loci")
     for crgid, d_crgloci in d_uniq_crg_locus_reads.items():
         for locusid in list(d_crgloci):
             if d_locus_crg_share[locusid][crgid] >= crg_share_threshold:
@@ -226,7 +233,7 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
                 # store isolated locus id and its reads
                 d_isolated_loci[locusid] = d_crgloci[locusid]
                 del d_uniq_crg_locus_reads[crgid][locusid]
-    # print(str(datetime.datetime.now()), "End: finding isolated CRG loci")
+    print(str(datetime.datetime.now()), "End: finding isolated CRG loci")
     print(str(datetime.datetime.now()), "done 2st iteration of CRGs")
     crg_index = len(d_uniq_crg_locus_reads)
     # print(str(datetime.datetime.now()), "Start: creating CRGs with isolated loci")
@@ -246,7 +253,7 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
     print("Number of loci: " + str(len(d_locireads.keys())))
     print("There are a total of " + str(len(d_uniq_crg_locus_reads)) + " uniq crgs")
 
-    # print(str(datetime.datetime.now()), "Start: Writing CRGs")
+    print(str(datetime.datetime.now()), "Start: Writing CRGs")
     d_duplicate_entries = {}
     fh_groups_file = open(groups_file, "w")
     # enumerate again because of above processing some crgids may be missing
@@ -262,12 +269,12 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
                 for transcriptid_pos in d_readlocus_transcripts[readid][locusid]:
                     entry = "\t".join([readid,
                                        transcriptid_pos.split('\t')[0],
-                                       "locus_" + str(locusid),
-                                       "group_" + str(crgid),
+                                       str(locusid),
+                                       str(crgid),
                                        '\t'.join(transcriptid_pos.split('\t')[1:]),
                                        d_read_genomic_pos[readid][transcriptid_pos],
-                                       l_locipos[locusid],
-                                       "{:.6g}".format(locus_share)]
+                                       d_locipos[locusid],
+                                       "{:.4g}".format(locus_share)]
                                       )
                     if entry in d_duplicate_entries:
                         # print("Duplicate entry found: " + entry)
@@ -275,39 +282,40 @@ def create_crgs(bed, merge_overlap, groups_file, crg_share_threshold, min_locus_
                     fh_groups_file.write(entry + "\n")
                     d_duplicate_entries[entry] = 1
     fh_groups_file.close()
-    # print(str(datetime.datetime.now()), "End: CRGs written")
+    print(str(datetime.datetime.now()), "End: CRGs written")
 
 
-def em(d_read_group_fractions, em_threshold, i=1):
-    d_read_group_fractions_new = defaultdict(lambda: defaultdict(float))
+def em(d_read_group_fractions, d_group_counts, em_threshold, i=1):
     print("iteration: " + str(i))
-    d_group_counts = defaultdict(float)
-    d_group_counts_new = defaultdict(float)
-    for readid in d_read_group_fractions.keys():
-        for groupid in d_read_group_fractions[readid]:
-            d_group_counts[groupid] += d_read_group_fractions[readid][groupid]
+    d_read_group_fractions_new = {}
+    d_group_counts_new = {}
 
     for readid in d_read_group_fractions.keys():
         total_group_count = 0
+        d_read_group_fractions_new[readid] = {}
         for groupid in d_read_group_fractions[readid]:
             total_group_count += d_group_counts[groupid]
         for groupid in d_read_group_fractions[readid]:
             d_read_group_fractions_new[readid][groupid] = d_group_counts[groupid]/float(total_group_count)
-
+    d_read_group_fractions.clear()
+    
     for readid in d_read_group_fractions_new.keys():
         for groupid in d_read_group_fractions_new[readid]:
+            if groupid not in d_group_counts_new:
+                d_group_counts_new[groupid] = 0
             d_group_counts_new[groupid] += d_read_group_fractions_new[readid][groupid]
 
     equal = True
     for groupid in d_group_counts.keys():
         if abs(d_group_counts[groupid] - d_group_counts_new[groupid]) >= em_threshold:
             equal = False
-
+            break
     if equal:
-        return d_read_group_fractions
+        return d_read_group_fractions_new
     else:
+        d_group_counts.clear()
         i += 1
-        return em(d_read_group_fractions_new, em_threshold, i)
+        return em(d_read_group_fractions_new, d_group_counts_new, em_threshold, i)
 
 
 def tpm(d_group_expression, d_group_locilen):
@@ -336,7 +344,8 @@ def quantify_crgs(loci_groups_file, em_threshold):
     fh_loci_groups_file = open(loci_groups_file, "r")
     for line in fh_loci_groups_file:
         f = line.rstrip("\n").split("\t")
-        readid = f[0]
+        # NOTE: readid changed here
+        readid = '|'.join(f[0].split('|')[:-1])
         locusid = f[2]
         groupid = f[3]
         pos = f[9].split(':')
@@ -347,14 +356,18 @@ def quantify_crgs(loci_groups_file, em_threshold):
         d_group_locilen[groupid][locusid] = locuslength
     fh_loci_groups_file.close()
 
+    d_group_counts = {}
     for readid in d_read_group_fractions.keys():
         for groupid in set(d_read_group_fractions[readid].keys()):
             d_read_group_fractions[readid][groupid] = 1 / float(len(set(d_read_group_fractions[readid])))
+            if groupid not in d_group_counts:
+                d_group_counts[groupid] = 0
+            d_group_counts[groupid] += d_read_group_fractions[readid][groupid]
 
     print(str(datetime.datetime.now()), "End: preparing EM")
     print(str(datetime.datetime.now()), "Start: recursing EM")
     sys.setrecursionlimit(10000)
-    d_res = em(d_read_group_fractions, em_threshold)
+    d_res = em(d_read_group_fractions, d_group_counts, em_threshold)
     print(str(datetime.datetime.now()), "End: recursing EM")
     for readid in d_res.keys():
         # now d_read_groups should contain only multi mapped reads because because

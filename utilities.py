@@ -177,6 +177,7 @@ def parse_counts_file(loci_groups_counts_file, tpm_cutoff, score_cutoff):
     fh_loci_groups_counts_file = open(loci_groups_counts_file, "r")
     for line in fh_loci_groups_counts_file:
         f = line.rstrip('\n').split('\t')
+        # NOTE: readid changed here
         readid = '|'.join(f[0].split("|")[:-1])
         group_tpm = f[12]
         prob = f[10]

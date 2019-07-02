@@ -1,4 +1,4 @@
-    #!/usr/local/bin/python
+#!/usr/local/bin/python
 # coding=utf-8
 import utilities
 import quantifier
@@ -157,46 +157,6 @@ class ChiRA:
         elif index == "index2":
             refindex = self.index2
 
-        # bwa_params = ["-r 1",                       # look for internal seeds inside a seed longer than {-k} * {-r}
-        #               "-A 1",                       # match score
-        #               "-B " + str(mismatch_penalty),  # mismatch penalty
-        #               "-O " + gap_o,                # gap open penalty
-        #               "-E " + gap_e,                # gap extension penalty
-        #               "-L 0",                       # clipping penalty, we need soft clips
-        #               "-Y",                         # use soft clipping for supplementary alignments
-        #               # "-h " + n_aligns,             # if there're -h hits with score >80% of the maxscore, output in XA
-        #               "-a ",
-        #               "-k " + str(seed_length),     # minimum seed length
-        #               "-T " + str(align_score),     # minimum alignment score
-        #               "-t " + str(self.threads),
-        #               refindex,
-        #               query_fasta
-        #               ]
-        # bwacall = ("bwa mem " + " ".join(bwa_params) + " | samtools view -hb - > " + bam)
-        # print(bwacall)
-        # os.system(bwacall)
-
-        # minimap2_params = ["-A 1",
-        #                    "-B " + str(mismatch_penalty),  # mismatch penalty
-        #                    "-O " + gap_o,                # gap open penalty
-        #                    "-E " + gap_e,                # gap extension penalty
-        #                    "-a",
-        #                    "-Y",
-        #                    "--seed " + str(seed_length),     # minimum seed length
-        #                    "-N " + str(n_aligns),
-        #                    "-t " + str(self.threads),
-        #                    "--sr",
-        #                    "-s " + str(align_score),
-        #                    # "-m " + str(align_score),
-        #                    "--for-only",
-        #                    "--frag yes",
-        #                    refindex,
-        #                    query_fasta
-        #                    ]
-        # minimap2call = ("minimap2 " + " ".join(minimap2_params) + " | samtools view -hb - > " + bam)
-        # print(minimap2call)
-        # os.system(minimap2call)
-
         if self.stranded == "fw":
             strand_option = "--norc"
         if self.stranded == "rc":
@@ -334,7 +294,7 @@ class ChiRA:
     def chunks(self, a, n):
         return (a[i::n] for i in range(n))
 
-    def process_alignments(self, readids, d_mapped_read_aligns, d_short_singleton_reads):
+    def process_alignments(self, readids, d_mapped_read_aligns, d_short_singleton_reads, lock):
         d_temp = defaultdict(list)
         l_properly_mapped_reads = []
         for readid in readids:
@@ -368,7 +328,9 @@ class ChiRA:
                 else:
                     if [read_start, read_end] not in d_temp[readid]:
                         d_temp[readid].append([read_start, read_end])
+        lock.acquire()
         d_short_singleton_reads.update(d_temp)
+        lock.release()
 
     def extract_unmapped(self, align_type):
         logging.info("| START: extract unmapped reads of " + align_type + " alignments")
@@ -414,15 +376,21 @@ class ChiRA:
         fh_mapped_bam.close()
         fh_mapped_bed.close()
 
+        if align_type == "short":
+            with open(os.path.join(matepairdir, align_type + ".unmapped.fa"), "w") as fh_unmapped_fasta:
+                for readid, readseq in d_unmapped_reads.items():
+                    fh_unmapped_fasta.write(">" + readid + "\n" + readseq + "\n")
+            return
         m = Manager()
         # [read id -> sequence] which are unmapped or not mapped on desired strand
         d_short_singleton_reads = m.dict()
-
+        lock = Lock()
         processes = []
         print(str(datetime.datetime.now()), " START: multiprocessing")
         for readids in self.chunks(list(d_mapped_read_aligns.keys()), self.threads):
+            # TODO: split the dict as well instead of passing the whole dict to all processses
             p = Process(target=self.process_alignments,
-                        args=(readids, d_mapped_read_aligns, d_short_singleton_reads))
+                        args=(readids, d_mapped_read_aligns, d_short_singleton_reads, lock))
             processes.append(p)
             p.start()
         for process in processes:
@@ -500,8 +468,8 @@ class ChiRA:
             bed = file_prefix + ".genomic.bed"
         else:
             bed = file_prefix + ".bed"
-        loci_groups_file = file_prefix + ".loci.groups.txt"
-        loci_groups_counts_file = file_prefix + ".loci.groups.counts"
+        loci_groups_file = os.path.join(matepairdir, "loci.txt")
+        loci_groups_counts_file = os.path.join(matepairdir, "loci.counts")
 
         # Merge the loci in the first part
         logging.info("| START: merge and create Common Read Loci (CRL)")
@@ -517,11 +485,12 @@ class ChiRA:
             with open(loci_groups_counts_file, "w") as fh_out:
                 for line in fh_in:
                     f = line.rstrip("\n").split("\t")
-                    readid = f[0]
+                    # NOTE: readid changed here
+                    readid = '|'.join(f[0].split('|')[:-1])
                     groupid = f[3]
                     fh_out.write("\t".join([line.strip("\n"),
-                                            "{:.6g}".format(d_read_group_fractions[readid][groupid]),
-                                            "{:.6g}".format(d_group_tpms[groupid])]) + "\n")
+                                            "{:.4g}".format(d_read_group_fractions[readid][groupid]),
+                                            "{:.4g}".format(d_group_tpms[groupid])]) + "\n")
         logging.info("| END: quantify CRLs")
         return
 
@@ -542,12 +511,12 @@ class ChiRA:
                     continue
                 if utilities.cigars_overlapping(cigar1, cigar2):
                     continue
-                if locuspos1 == locuspos2:
+                if locuspos1 == locuspos2 or groupid1 == groupid2:
                     continue
 
                 first_locus_score = float(prob1) * float(locusshare1)
                 second_locus_score = float(prob2) * float(locusshare2)
-                combined_score = first_locus_score * second_locus_score
+                combined_score = first_locus_score + second_locus_score
 
                 # check for duplicates
                 if ",".join([readid,
@@ -645,7 +614,7 @@ class ChiRA:
     def write_loci_pairs(self):
         matepairdir = os.path.join(self.outputdir, self.current_matepair)
 
-        loci_groups_counts_file = os.path.join(matepairdir, "mapped.segments.loci.groups.counts")
+        loci_groups_counts_file = os.path.join(matepairdir, "loci.counts")
         locipairs = os.path.join(matepairdir, "loci.pairs")
 
         d_read_lines = utilities.parse_counts_file(loci_groups_counts_file, self.tpm_cutoff, self.score_cutoff)
@@ -852,7 +821,7 @@ class ChiRA:
                             dest='score_cutoff',
                             help='Hybrids with less than this score will be discarded in the final output. [0-1.0]')
 
-        parser.add_argument('-mo', '--merge_overlap', action='store', type=score_float, default=0.8, metavar='',
+        parser.add_argument('-mo', '--merge_overlap', action='store', type=score_float, default=0.7, metavar='',
                             dest='merge_overlap',
                             help='Minimum percentage overlap among BED entries inorder to merge. [0-1.0]')
 
@@ -861,19 +830,19 @@ class ChiRA:
                             help='Minimum percentage overlap of a locus on a CRG inorder to merge it '
                                  'into a CRG. [0-1.0]')
 
-        parser.add_argument('-ls', '--min_locus_size', action='store', type=int, default=5, metavar='',
+        parser.add_argument('-ls', '--min_locus_size', action='store', type=int, default=4, metavar='',
                             dest='min_locus_size',
                             help='Minimum number of reads a locus should have in order to participate in CRG creation'
                                  'Always set this value relative to your sequencing depth. Setting this to lower leads'
                                  'CRGs of random multimappings Also consider setting the --crg_share_threshold option '
                                  'along with this')
 
-        parser.add_argument('-e', '--em_threshold', action='store', type=score_float, default=0.05, metavar='',
+        parser.add_argument('-e', '--em_threshold', action='store', type=score_float, default=1, metavar='',
                             dest='em_threshold',
                             help='The maximum difference of transcripts expression between two consecutive iterations '
                                  'of EM algorithm to converge.')
 
-        parser.add_argument('-so', '--segment_overlap', action='store', type=score_float, default=0.8, metavar='',
+        parser.add_argument('-so', '--segment_overlap', action='store', type=score_float, default=0.7, metavar='',
                             dest='percent_segment_overlap',
                             help='Matching read positions with greater than this %% overlap are merged into a segment')
 
