@@ -111,7 +111,7 @@ def extract_singleton_reads(s, e, d_read_positions, d_singleton_reads, lock, co)
                         continue
                     # <= co indicates no overlap between read segments,
                     # a second non-overlapping soft clipped alignment found
-                    if max(0, min(prev_pos[1], read_end) - max(prev_pos[0], read_start)) <= co:
+                    if chira_utilities.overlap([prev_pos[0], prev_pos[1]], [read_start, read_end]) <= co:
                         proper_chimera = True
                         break
             if proper_chimera:
