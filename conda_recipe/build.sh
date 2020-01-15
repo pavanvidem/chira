@@ -1,2 +1,0 @@
-cp *.py ${PREFIX}/bin
-
