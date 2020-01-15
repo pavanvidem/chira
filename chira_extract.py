@@ -512,15 +512,11 @@ def tsv_to_sqlite(in_file, out_file):
         columns = [h.strip() for h in columns]
         if header:
             sql_command = 'CREATE TABLE IF NOT EXISTS Chimeras(%s)' % ', '.join(['%s' % column for column in columns])
-            print(sql_command)
             cursor.execute(sql_command)
             header = False
-        # ~ for row in reader:    ## we will read the rows later in the loop
-        # ~ print(row)
 
         query = 'insert into Chimeras({0}) values ({1})'
         query = query.format(','.join(columns), ','.join('?' * len(columns)))
-        print(query)
         cursor = conn.cursor()
         for row in reader:
             cursor.execute(query, row)
