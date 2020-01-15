@@ -2,18 +2,6 @@
 import re
 
 
-def overlap(f, s):
-    return max(0, min(f[1], s[1]) - max(f[0], s[0]))
-
-
-def median(x):
-    n = len(x)
-    mid = int(n/2)
-    if not n % 2:
-        return (x[mid-1] + x[mid]) / 2.0
-    return x[mid]
-
-
 def match_positions(cigar, is_reverse):
     cigar_tup = re.findall(r'(\d+)([MISH=X])', cigar)
     match_start = match_end = 0
@@ -35,7 +23,7 @@ def match_positions(cigar, is_reverse):
 def switch_alignments(cigar1, cigar2, is_reverse1, is_reverse2, max_allowed_overlap):
     match_start1, match_end1 = match_positions(cigar1, is_reverse1)
     match_start2, match_end2 = match_positions(cigar2, is_reverse2)
-    if overlap([match_start1, match_end1], [match_start2, match_end2]) > max_allowed_overlap:
+    if max(0, min(match_end1, match_end2) - max(match_start1, match_start2)) > max_allowed_overlap:
         return None
     else:
         if match_start1 < match_start2:

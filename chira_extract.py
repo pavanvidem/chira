@@ -17,6 +17,10 @@ d_gene_annotations = defaultdict(lambda: defaultdict(str))
 d_transcript_annotations = defaultdict(lambda: defaultdict())
 
 
+def overlap(f, s):
+    return max(0, min(f[1], s[1]) - max(f[0], s[0]))
+
+
 def strandardize(strand):
     if strand == '-1':
         strand = '-'
@@ -40,8 +44,8 @@ def guess_region(transcriptid, read_pos):
             if read_chr != chrom or read_strand != strand:
                 continue
 
-            if chira_utilities.overlap([start, end], [int(read_start), int(read_end)]) > overlap_length:
-                overlap_length = chira_utilities.overlap([start, end], [int(read_start), int(read_end)])
+            if overlap([start, end], [int(read_start), int(read_end)]) > overlap_length:
+                overlap_length = overlap([start, end], [int(read_start), int(read_end)])
                 region = 'UTR'
                 utr_start = start
                 utr_end = end
@@ -54,8 +58,8 @@ def guess_region(transcriptid, read_pos):
             strand = strandardize(pos[3])
             if read_chr != chrom or read_strand != strand:
                 continue
-            if chira_utilities.overlap([start, end], [int(read_start), int(read_end)]) > overlap_length:
-                overlap_length = chira_utilities.overlap([start, end], [int(read_start), int(read_end)])
+            if overlap([start, end], [int(read_start), int(read_end)]) > overlap_length:
+                overlap_length = overlap([start, end], [int(read_start), int(read_end)])
                 region = 'CDS'
             if not first_cds_start or start < first_cds_start:
                 first_cds_start = start
@@ -84,8 +88,8 @@ def guess_region(transcriptid, read_pos):
                 name = pos[4]
                 if read_chr != chrom and read_strand != strand:
                     continue
-                if chira_utilities.overlap([start, end], [int(read_start), int(read_end)]) > overlap_length:
-                    overlap_length = chira_utilities.overlap([start, end], [int(read_start), int(read_end)])
+                if overlap([start, end], [int(read_start), int(read_end)]) > overlap_length:
+                    overlap_length = overlap([start, end], [int(read_start), int(read_end)])
                     if name.endswith("-3p"):
                         region = "3p_mature_mir"
                     elif name.endswith("-5p"):

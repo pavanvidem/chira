@@ -4,7 +4,6 @@ import sys
 from collections import defaultdict
 import datetime
 import argparse
-import chira_utilities
 sys.setrecursionlimit(10000)
 
 
@@ -208,12 +207,20 @@ def em(d_read_group_fractions, d_group_counts, em_threshold, i=1):
         return em(d_read_group_fractions_new, d_group_counts_new, em_threshold, i)
 
 
+def median(x):
+    n = len(x)
+    mid = int(n/2)
+    if not n % 2:
+        return (x[mid-1] + x[mid]) / 2.0
+    return x[mid]
+
+
 def tpm(d_group_expression, d_group_locilen):
     total_rpk = 0
     d_group_tpm = defaultdict(float)
     for groupid in sorted(d_group_expression.keys()):
         crl_expression = d_group_expression[groupid]
-        crl_len = chira_utilities.median(sorted(d_group_locilen[groupid].values())) / 1000.0  # length in kbs
+        crl_len = median(sorted(d_group_locilen[groupid].values())) / 1000.0  # length in kbs
         rpk = crl_expression / crl_len
         d_group_tpm[groupid] = rpk
         total_rpk += rpk
