@@ -282,7 +282,6 @@ def transcript_to_genomic_pos(transcriptomic_bed, genomic_bed, f_geneexonbed, f_
     print("Total alignments:        " + str(len(d_ids_plus)+len(d_ids_minus)))
     print("Hits on plus strand:     " + str(len(d_ids_plus)))
     print("Hits on minus strand:    " + str(len(d_ids_minus)))
-    print("Hits over exon borders:  " + str(sum(1 for i in {**d_ids_plus, **d_ids_minus}.values() if i >= 2)))
 
     # Write alignments spanning exon borders to a file
     fh_wojunctions = open(genomic_bed, "w")
@@ -302,7 +301,6 @@ def transcript_to_genomic_pos(transcriptomic_bed, genomic_bed, f_geneexonbed, f_
     fh_wojunctions.close()
 
     print("done")
-    # print("Alignments after filtering junction reads: " + str(n_final))
     os.system("rm " + overlapout)
     return
 
