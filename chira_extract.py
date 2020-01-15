@@ -1,5 +1,4 @@
-#!/usr/local/bin/python
-# coding=utf-8
+#!/usr/bin/env python
 import chira_utilities
 import argparse
 import os
@@ -574,7 +573,7 @@ def merge_files(outfile, r):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Chimeric read annotator for interactome data',
+    parser = argparse.ArgumentParser(description='Chimeric Read Annotator: extract chimeras',
                                      usage='%(prog)s [-h] [-v,--version]',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 

@@ -1,5 +1,4 @@
-#!/usr/bin/python
-# coding=utf-8
+#!/usr/bin/env pythons
 import argparse
 import os
 import sys
@@ -361,7 +360,7 @@ def score_float(x):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='Chimeric read annotator for interactome data',
+    parser = argparse.ArgumentParser(description='Chimeric Read Annotator: map reads to the reference',
                                      usage='%(prog)s [-h] [-v,--version]',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 

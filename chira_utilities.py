@@ -1,4 +1,4 @@
-import os
+#!/usr/bin/env python
 import re
 
 
@@ -16,34 +16,6 @@ def median(x):
 
 def chunks(ids, n):
     return [ids[i:i+n] for i in range(0, len(ids), n)]
-
-
-def pairspos_to_bed(readpairs, bed1, bed2):
-    fh_bed1 = open(bed1, "w")
-    fh_bed2 = open(bed2, "w")
-    with open(readpairs, "r") as fh_readpairs:
-        for line in fh_readpairs:
-            f = line.rstrip('\n').split('\t')
-            chimeraid = f[0]
-            pos1 = f[16]
-            f1 = pos1.split(':')
-            # TODO : flanking bases as an option
-            f1[1] = str(int(f1[1]) - 20)
-            f1[2] = str(int(f1[2]) + 20)
-            f1.insert(3, chimeraid)
-            f1.insert(4, "0")
-            fh_bed1.write('\t'.join(f1)+"\n")
-
-            pos2 = f[17]
-            f2 = pos2.split(':')
-            f2[1] = str(int(f2[1]) - 20)
-            f2[2] = str(int(f2[2]) + 20)
-            f2.insert(3, chimeraid)
-            f2.insert(4, "0")
-            fh_bed2.write('\t'.join(f2)+"\n")
-    fh_bed1.close()
-    fh_bed2.close()
-    return
 
 
 def query_length(cigar, is_reverse):
