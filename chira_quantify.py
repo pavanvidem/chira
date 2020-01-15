@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os
 import sys
 from collections import defaultdict
@@ -279,7 +280,7 @@ def score_float(x):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='Chimeric read annotator for interactome data',
+    parser = argparse.ArgumentParser(description='Chimeric Read Annotator: quantify mapped loci',
                                      usage='%(prog)s [-h] [-v,--version]',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 

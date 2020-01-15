@@ -1,12 +1,11 @@
-#!/usr/bin/python
-import os
+#!/usr/bin/env python
 from collections import defaultdict
 import argparse
 from Bio import SeqIO
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Fastq to Fasta',
+    parser = argparse.ArgumentParser(description='Chimeric Read Annotator: collapse FASTQ reads to FASTA format',
                                      usage='%(prog)s [-h] [-v,--version]',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
