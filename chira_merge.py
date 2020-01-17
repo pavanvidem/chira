@@ -327,10 +327,6 @@ if __name__ == "__main__":
     parser.add_argument('-g', '--gtf', action='store', dest='gtf', required=False,
                         metavar='', help='Annotation GTF file')
 
-    parser.add_argument('-p', '--threads', action='store', type=int, default=1, metavar='',
-                        dest='threads',
-                        help='Number of threads to use')
-
     parser.add_argument('-ao', '--alignment_overlap', action='store', type=score_float, default=0.7, metavar='',
                         dest='alignment_overlap_fraction',
                         help='Minimum percentage overlap among BED entries inorder to merge. [0-1.0]')
@@ -347,7 +343,6 @@ if __name__ == "__main__":
     print('Output directory                     : ' + args.outdir)
     if args.gtf:
         print('Annotation file                      : ' + args.gtf)
-    print('Number of threads                    : ' + str(args.threads))
     print('Alignment overlap fraction           : ' + str(args.alignment_overlap_fraction))
     print('Segment overlap fraction             : ' + str(args.segment_overlap_fraction))
     print("===================================================================")
