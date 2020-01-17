@@ -10,8 +10,7 @@ import itertools
 import datetime
 import math
 from BCBio import GFF
-import sqlite3
-import csv
+
 
 d_gene_annotations = defaultdict(lambda: defaultdict(str))
 d_transcript_annotations = defaultdict(lambda: defaultdict())
@@ -501,29 +500,6 @@ def score_float(x):
     return x
 
 
-def tsv_to_sqlite(in_file, out_file):
-    conn = sqlite3.connect(out_file)
-    cursor = conn.cursor()
-
-    header = True
-    with open(in_file) as fh_in:
-        reader = csv.reader(fh_in, delimiter='\t')
-        columns = next(reader)
-        columns = [h.strip() for h in columns]
-        if header:
-            sql_command = 'CREATE TABLE IF NOT EXISTS Chimeras(%s)' % ', '.join(['%s' % column for column in columns])
-            cursor.execute(sql_command)
-            header = False
-
-        query = 'insert into Chimeras({0}) values ({1})'
-        query = query.format(','.join(columns), ','.join('?' * len(columns)))
-        cursor = conn.cursor()
-        for row in reader:
-            cursor.execute(query, row)
-        conn.commit()
-        conn.close()
-
-
 def merge_files(outfile, r):
     # header fields
     header = "\t".join(["tagid",
@@ -556,9 +532,10 @@ def merge_files(outfile, r):
                         "score1",
                         "score2",
                         "score",
-                        "sequence1",
-                        "sequence2",
-                        "hybrid"])
+                        "sequences",
+                        "hybrid",
+                        "hybrid_pos",
+                        "mfe"])
     with open(outfile, 'w') as fh_out:
         fh_out.write(header + "\n")
         for i in range(r):
@@ -599,8 +576,6 @@ if __name__ == "__main__":
                         dest='chimeric_overlap',
                         help='Maximum number of bases allowed between the chimeric segments of a read')
 
-    parser.add_argument("-q", '--create-sqlite', action='store_true', dest='create_sqlitedb',
-                        help="Hybridize the predicted chimeras")
 
     parser.add_argument("-r", '--hybridize', action='store_true', dest='hybridize',
                         help="Hybridize the predicted chimeras")
@@ -624,7 +599,6 @@ if __name__ == "__main__":
 
     print('CRL file                             : ' + args.crl_file)
     print('Outpur direcoty                      : ' + args.outdir)
-    print('Create sqlite database?              : ' + str(args.create_sqlitedb))
     if args.f_gtf:
         print('Annotation file                      : ' + args.f_gtf)
     print('Number of processes                  : ' + str(args.processes))
@@ -687,10 +661,4 @@ if __name__ == "__main__":
     merge_files(chimeras_file, args.processes)
     merge_files(singletons_file, args.processes)
     print(str(datetime.datetime.now()), " END: multiprocessing")
-    # os.system("gzip -f " + chimeras_file)
-    # os.system("gzip -f " + singletons_file)
-    if args.create_sqlitedb:
-        if os.path.exists(chimeras_file + '.chira.sqlite'):
-            os.system("rm " + chimeras_file + '.chira.sqlite')
-        tsv_to_sqlite(chimeras_file, chimeras_file + '.chira.sqlite')
     logging.info("| END: write final interactions to a file")
