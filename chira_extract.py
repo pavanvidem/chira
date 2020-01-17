@@ -687,9 +687,8 @@ if __name__ == "__main__":
     merge_files(chimeras_file, args.processes)
     merge_files(singletons_file, args.processes)
     print(str(datetime.datetime.now()), " END: multiprocessing")
-    os.system("gzip -f " + args.crl_file)
-    os.system("gzip -f " + chimeras_file)
-    os.system("gzip -f " + singletons_file)
+    # os.system("gzip -f " + chimeras_file)
+    # os.system("gzip -f " + singletons_file)
     if args.create_sqlitedb:
         if os.path.exists(chimeras_file + '.chira.sqlite'):
             os.system("rm " + chimeras_file + '.chira.sqlite')
