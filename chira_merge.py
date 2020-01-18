@@ -124,7 +124,6 @@ def merge_loci_and_quantify(outdir, alignment_overlap_fraction):
                         l_alignments.append(alignment)
                 [chromid, strand] = chrom.split("\t")
                 fh_out.write("\t".join([chromid, str(pos[0]), str(pos[1]), strand, ";".join(sorted(l_alignments))]) + "\n")
-
     d_desc.clear()
     return
 

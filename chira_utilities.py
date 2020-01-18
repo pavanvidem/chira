@@ -14,6 +14,16 @@ def median(x):
     return x[mid]
 
 
+def query_length(cigar, is_reverse):
+    cigar_tup = re.findall(r'(\d+)([MISH=X])', cigar)
+    read_length = 0
+    if is_reverse:
+        cigar_tup = reversed(cigar_tup)
+    for c in cigar_tup:
+        read_length += int(c[0])
+    return read_length
+
+
 def match_positions(cigar, is_reverse):
     cigar_tup = re.findall(r'(\d+)([MISH=X])', cigar)
     match_start = match_end = 0
