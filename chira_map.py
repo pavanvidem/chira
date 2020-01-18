@@ -76,8 +76,10 @@ def merge_bams(outdir, align_type, processes):
                "-o", os.path.join(outdir, align_type + ".bam"))
     pysam.index(os.path.join(outdir, align_type + ".bam"))
     os.path.join(outdir, align_type + ".unsorted.bam")
-    os.system("rm " + os.path.join(outdir, "index1." + align_type + ".bam")
-              + " " + os.path.join(outdir, "index2." + align_type + ".bam"))
+    if os.path.exists(os.path.join(outdir, "index1." + align_type + ".bam")):
+        os.remove(os.path.join(outdir, "index1." + align_type + ".bam"))
+    if os.path.exists(os.path.join(outdir, "index2." + align_type + ".bam")):
+        os.remove(os.path.join(outdir, "index2." + align_type + ".bam"))
 
     logging.info("| END: merge and sort " + align_type + " alignments both indices")
 
@@ -508,7 +510,9 @@ if __name__ == "__main__":
             logging.info("| END: sort long alignments")
         print(str(datetime.datetime.now()), " START:extract unmapped long")
         extract_unmapped("long", args.outdir, args.chimeric_overlap, args.stranded, args.processes)
-        os.system("rm " + os.path.join(args.outdir, "long.bam"))
+        if os.path.exists(os.path.join(args.outdir, "long.bam")):
+            os.remove(os.path.join(args.outdir, "long.bam"))
+
         print(str(datetime.datetime.now()), " START:extract unmapped long")
         align_with_bwa("short", "index1", args.fasta, index1, args.outdir,
                        args.seed_length2, args.align_score2, args.processes)
@@ -527,21 +531,26 @@ if __name__ == "__main__":
             pysam.index(os.path.join(args.outdir, "short.bam"))
             logging.info("| END: sort short alignments")
         extract_unmapped("short", args.outdir, args.chimeric_overlap, args.stranded, args.processes)
-        os.system("rm " + os.path.join(args.outdir, "short.bam"))
+        if os.path.exists(os.path.join(args.outdir, "short.bam")):
+            os.remove(os.path.join(args.outdir, "short.bam"))
 
         logging.info("| START: merge both long and short alignments")
         merge_beds(os.path.join(args.outdir, "long.mapped.bed"),
                    os.path.join(args.outdir, "short.mapped.bed"),
                    os.path.join(args.outdir, "mapped.bed"))
-        os.system("rm " + os.path.join(args.outdir, "long.mapped.bed"))
-        os.system("rm " + os.path.join(args.outdir, "short.mapped.bed"))
+        if os.path.exists(os.path.join(args.outdir, "long.mapped.bed")):
+            os.remove(os.path.join(args.outdir, "long.mapped.bed"))
+        if os.path.exists(os.path.join(args.outdir, "short.mapped.bed")):
+            os.remove(os.path.join(args.outdir, "short.mapped.bed"))
 
         # -f to force if file already exists
         pysam.merge("-f", os.path.join(args.outdir, "mapped.bam"),
                     os.path.join(args.outdir, "long.mapped.bam"),
                     os.path.join(args.outdir, "short.mapped.bam"))
-        os.system("rm " + os.path.join(args.outdir, "long.mapped.bam"))
-        os.system("rm " + os.path.join(args.outdir, "short.mapped.bam"))
+        if os.path.exists(os.path.join(args.outdir, "long.mapped.bam")):
+            os.remove(os.path.join(args.outdir, "long.mapped.bam"))
+        if os.path.exists(os.path.join(args.outdir, "short.mapped.bam")):
+            os.remove(os.path.join(args.outdir, "short.mapped.bam"))
 
         logging.info("| END: merge both long and short alignments")
     else:

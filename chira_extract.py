@@ -10,6 +10,7 @@ import itertools
 import datetime
 import math
 from BCBio import GFF
+from Bio import SeqIO
 
 
 d_gene_annotations = defaultdict(lambda: defaultdict(str))
@@ -110,7 +111,6 @@ def update_best_hits(l_best_hits, hit_type):
     for hit in l_best_hits:
         if hit_type == "chimera":
             hit_length = int(hit[10]) - int(hit[9]) + int(hit[14]) - int(hit[13])
-            print(hit[0], hit[1], (hit[10]), int(hit[9]), int(hit[14]), int(hit[13]))
         elif hit_type == "singleton":
             hit_length = int(hit[6]) - int(hit[5])
         if hit_length > longest:
@@ -276,12 +276,15 @@ def write_chimeras(l_readids, l_loci, d_loci_seqs, refids1, refids2, chimeric_ov
                     seq1 = seq2 = dotbracket = pos = energy = "NA"
                     locuspos1 = a[20]
                     locuspos2 = a[21]
-                    if (locuspos1, locuspos2) not in d_hybrids:
-                        if locuspos1 in d_loci_seqs and locuspos2 in d_loci_seqs:
-                            seq1 = d_loci_seqs[locuspos1]
-                            seq2 = d_loci_seqs[locuspos2]
-                            if hybridize:
+                    if locuspos1 in d_loci_seqs and locuspos2 in d_loci_seqs:
+                        seq1 = d_loci_seqs[locuspos1]
+                        seq2 = d_loci_seqs[locuspos2]
+                        if hybridize:
+                            if (locuspos1, locuspos2) in d_hybrids:
+                                dotbracket, pos, energy = d_hybrids[locuspos1, locuspos2]
+                            else:
                                 dotbracket, pos, energy = hybridize_with_intarna(seq1, seq2)
+                                d_hybrids[locuspos1, locuspos2] = dotbracket, pos, energy
                     a.append(seq1 + "&" + seq2)
                     a.append(dotbracket)
                     a.append(pos)
@@ -386,19 +389,9 @@ def parse_annotations(f_gtf):
 
 
 def parse_loci_fasta(f_loci, d_loci_seq):
-    with open(f_loci) as fh_loci_fa:
-        seqid = seq = ""
-        for line in fh_loci_fa:
-            if line.startswith('>'):
-                if seq:
-                    # convert DNA to RNA
-                    d_loci_seq[seqid] = seq.upper().replace('T', 'U')
-                seq = ""
-                # cut out extra strand from the header
-                # 17:84770948:84770962:-(-)
-                seqid = line.lstrip('>')[:-4]
-            else:
-                seq += line.rstrip('\n')
+    fa_seq = SeqIO.parse(open(f_loci),'fasta')
+    for record in fa_seq:
+        d_loci_seq[record.id[:-3]] = str(record.seq).upper().replace('T', 'U')
     return
 
 
@@ -410,7 +403,7 @@ def extract_refids(s_refids, ref_fasta):
     return
 
 
-def parse_counts_file(crl_file, tpm_cutoff, score_cutoff, hybridize, f_ref, outdir):
+def parse_counts_file(crl_file, tpm_cutoff, score_cutoff, f_ref, outdir):
     d_group_tpm = defaultdict(float)
 
     l_loci_bed = set()
@@ -421,17 +414,15 @@ def parse_counts_file(crl_file, tpm_cutoff, score_cutoff, hybridize, f_ref, outd
             group_tpm = f[12]
             d_group_tpm[groupid] = float(group_tpm)
             b = f[9].split(":")
-            if hybridize:
-                locus_bed_entry = "\t".join([b[0], b[1], b[2], f[9], "0", b[3]])
-                if locus_bed_entry not in l_loci_bed:
-                    l_loci_bed.add(locus_bed_entry)
-
-    if hybridize:
-        with open(os.path.join(outdir, "loci.bed"), "w") as fh_bed:
-            for bed in l_loci_bed:
-                fh_bed.write(bed + "\n")
-        os.system("fastaFromBed -s -nameOnly -fi " + f_ref + " -bed " +
-                  os.path.join(outdir, "loci.bed") + " -fo " + os.path.join(outdir, "loci.fa"))
+            locus_bed_entry = "\t".join([b[0], b[1], b[2], f[9], "0", b[3]])
+            if locus_bed_entry not in l_loci_bed:
+                l_loci_bed.add(locus_bed_entry)
+    # loci sequences are neeeded to hybridize
+    with open(os.path.join(outdir, "loci.bed"), "w") as fh_bed:
+        for bed in l_loci_bed:
+            fh_bed.write(bed + "\n")
+    os.system("fastaFromBed -s -nameOnly -fi " + f_ref + " -bed " +
+              os.path.join(outdir, "loci.bed") + " -fo " + os.path.join(outdir, "loci.fa"))
 
     uniq_tpms = sorted(list(set(d_group_tpm.values())))
     tpm_threshold = uniq_tpms[int(tpm_cutoff * len(uniq_tpms))]
@@ -561,16 +552,18 @@ if __name__ == "__main__":
         with open(f_reference, 'w') as fh_out_ref:
             for fname in l_ref:
                 with open(fname) as infile:
-                    for line in infile:
-                        fh_out_ref.write(line)
-    d_read_alignments = parse_counts_file(args.crl_file, args.tpm_cutoff, args.score_cutoff,
-                                          args.hybridize, f_reference, args.outdir)
+                    for lin in infile:
+                        fh_out_ref.write(lin)
+    d_read_alignments = parse_counts_file(args.crl_file, args.tpm_cutoff, args.score_cutoff, f_reference, args.outdir)
     # remove the temporary reference file
     if not args.f_ref:
-        os.system("rm " + f_reference)
+        if os.path.exists(f_reference):
+            os.remove(f_reference)
+        if os.path.exists(f_reference + ".fai"):
+            os.remove(f_reference + ".fai")
+
     d_loci_sequences = defaultdict()
-    if args.hybridize:
-        parse_loci_fasta(os.path.join(args.outdir, "loci.fa"), d_loci_sequences)
+    parse_loci_fasta(os.path.join(args.outdir, "loci.fa"), d_loci_sequences)
 
     print(str(datetime.datetime.now()), " START: multiprocessing")
     chimeras_file = os.path.join(args.outdir, "chimeras")

@@ -35,7 +35,7 @@ def match_positions(cigar, is_reverse):
                 match_start = match_end = int(c[0]) + 1
         elif c[1] == "M":
             if match_start:
-                match_end = match_end + int(c[0])
+                match_end = match_end + int(c[0]) - 1
             else:
                 match_start = 1
                 match_end = int(c[0])
