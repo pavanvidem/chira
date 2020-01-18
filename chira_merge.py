@@ -300,7 +300,9 @@ def transcript_to_genomic_pos(transcriptomic_bed, genomic_bed, f_geneexonbed, f_
     fh_wojunctions.close()
 
     print("done")
-    os.system("rm " + overlapout)
+    if os.path.exists(overlapout):
+        os.remove(overlapout)
+
     return
 
 
