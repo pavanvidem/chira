@@ -323,7 +323,7 @@ if __name__ == "__main__":
     print('Minimum locus size                   : ' + str(args.min_locus_size))
     print('CRL share                            : ' + str(args.crl_share))
     print('EM threshold                         : ' + str(args.em_thresh))
-    print('Create CRLs todo                     : ' + str(args.create_crls_too))
+    print('Create CRLs too                     : ' + str(args.create_crls_too))
     print("===================================================================")
 
     create_crls(args.create_crls_too, args.bed, args.merged_bed,

@@ -6,7 +6,7 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
 * Description: This tool deduplicates the reads from the FASTQ file and writes into a fasta each read once with it's read count.
 * Inputs
   * Quality and adapter trimmed FASTQ file
-* Oututs
+* Outputs
   * FASTA file with unique sequences. The headers of the sequence are in the following format: >sequence_id|UMI|read_count
 
 ## chira_map.py
@@ -15,7 +15,7 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
   * A fasta file containing reads
   * A reference fasta file containing transcript sequences
   * An optional second reference fasta file, incase if  you split your reference into two
-* Oututs
+* Outputs
   * BED file containing the alignments
   * Optional unmapped FASTA file
 
@@ -24,7 +24,7 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
 * Inputs
   * Alignments in BED format
   * An annotation GTF file contaning reference genomic positions.
-* Oututs
+* Outputs
   * BED file containing the alignments with reads categorized into segments depending on which part of the read is aligned.
   * BED file containing merged alignments. 4th column contains all the alignments merged into that location and 5th column contains number of reads.
 
@@ -32,8 +32,8 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
 * Description: This tool first creates CRLS from merged BED file and quantifies them based on the mapped reads.
 * Inputs
   * A BED file containing alignment segments
-  * A BED file containing merged alignments
-* Oututs
+  * A tabular  file containing merged alignments
+* Outputs
   * Tabular file containing the reads and their CRLs with TPM values.
 
 ## chira_extract.py
@@ -43,5 +43,5 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
   * Annotation GTF file
   * Reference fasta files. Provide both in case of split reference.
   * If your alignments are merged at genomic level in previous step (chira_merge.py), then provide a reference genomic fasta fille.
-* Oututs
+* Outputs
   * Tabular file containing chimeras information
