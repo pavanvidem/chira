@@ -347,6 +347,9 @@ def parse_annotations(f_gtf):
                                                                            str(sub_feature.location.strand)])
                 # remaining are exon, miRNA and tRNA lines
                 else:
+                    if transcript_id + "_e" + str(n_exon).zfill(3) in l_seen_exons:
+                        continue
+
                     # reset the variables if it is a new transcript
                     if prev_transcript_id != transcript_id:
                         d_transcript_annotations['len'][transcript_id] = 0
@@ -354,9 +357,6 @@ def parse_annotations(f_gtf):
                         exon_rel_start = 0
                         exon_rel_end = 0
                         exon_len = 0
-
-                    if transcript_id + "_e" + str(n_exon).zfill(3) in l_seen_exons:
-                        continue
 
                     d_transcript_annotations['gid'][transcript_id] = gene_id
                     # biotype
