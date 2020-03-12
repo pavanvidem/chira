@@ -4,7 +4,7 @@ import os
 import sys
 from collections import defaultdict
 import pysam
-from multiprocessing import Process, Lock, Manager
+from multiprocessing import Process
 import logging
 import datetime
 import math
@@ -84,7 +84,7 @@ def merge_bams(outdir, align_type, processes):
     logging.info("| END: merge and sort " + align_type + " alignments both indices")
 
 
-def extract_singleton_reads(s, e, d_read_positions, d_singleton_reads, lock, co):
+def extract_singleton_reads(s, e, d_read_positions, co, d_mapped_reads, singletons_fasta, i):
     """
         For long alignments, this function to checks if there is at least an alignment per read
         with 2 non-overlapping arms. If there such an alignment, read qualifies as chimeric.
@@ -93,11 +93,12 @@ def extract_singleton_reads(s, e, d_read_positions, d_singleton_reads, lock, co)
             s: Start index of the chunk
             e: End index of the chunk
             d_read_positions: Dictionaries containing  the  [readid] -> [(read_sart, read_end; reference_id)]
-            d_singleton_reads: Shared dictionary to write singleton reads
-            lock: Multiprocessing Lock object
             co: Maximum allowed overlap between the aligned read arms
+            d_mapped_reads: dictionary containing all the mapped sequences
+            singletons_fasta: File path to write singleton fasta sequences temporarily
+            i: index to add to fasta file indicating the process count
     """
-    d_temp = defaultdict(list)
+    d_singleton_reads = defaultdict(list)
     l_proper_chimeric_reads = []
     for readid in list(d_read_positions)[s:e]:
         if readid in l_proper_chimeric_reads:
@@ -105,8 +106,8 @@ def extract_singleton_reads(s, e, d_read_positions, d_singleton_reads, lock, co)
         proper_chimera = False
         for (read_start, read_end, ref_id) in d_read_positions[readid]:
             # mark as unmapped if there is only one mapped segment that doesn't cover the entire read
-            if readid in d_temp:
-                for prev_pos in d_temp[readid]:
+            if readid in d_singleton_reads:
+                for prev_pos in d_singleton_reads[readid]:
                     # same reference id
                     # TODO: accept as a proper chimera if its mapped parts are not overlapping
                     if ref_id == prev_pos[2]:
@@ -118,14 +119,15 @@ def extract_singleton_reads(s, e, d_read_positions, d_singleton_reads, lock, co)
                         break
             if proper_chimera:
                 l_proper_chimeric_reads.append(readid)
-                if readid in d_temp:
-                    del d_temp[readid]
+                if readid in d_singleton_reads:
+                    del d_singleton_reads[readid]
             else:
-                if [read_start, read_end, ref_id] not in d_temp[readid]:
-                    d_temp[readid].append([read_start, read_end, ref_id])
-    lock.acquire()
-    d_singleton_reads.update(d_temp)
-    lock.release()
+                if [read_start, read_end, ref_id] not in d_singleton_reads[readid]:
+                    d_singleton_reads[readid].append([read_start, read_end, ref_id])
+
+    with open(singletons_fasta + "." + i, "w") as fh_singletons:
+        for readid in d_singleton_reads.keys():
+            fh_singletons.write(">" + readid + "\n" + d_mapped_reads[readid] + "\n")
 
 
 def extract_unmapped(align_type, outdir, chimeric_overlap, stranded, processes):
@@ -240,30 +242,28 @@ def extract_unmapped(align_type, outdir, chimeric_overlap, stranded, processes):
                 fh_unmapped_fasta.write(">" + readid + "\n" + readseq + "\n")
         return
     # further process long mapped reads
-    m = Manager()
-    # [read id -> sequence] which are unmapped or not mapped on desired strand
-    d_singleton_reads = m.dict()
-    lock = Lock()
     jobs = []
     print(str(datetime.datetime.now()), " START: multiprocessing")
+    singletons_fasta = os.path.join(args.outdir, "siingleton_reads")
     for i in range(processes):
         s = i * math.ceil(len(d_read_positions)/processes)
         e = min(s + math.ceil(len(d_read_positions)/processes), len(d_read_positions))
         j = Process(target=extract_singleton_reads,
-                    args=(s, e, d_read_positions, d_singleton_reads, lock, chimeric_overlap))
+                    args=(s, e, d_read_positions, chimeric_overlap, d_mapped_reads, singletons_fasta, str(i)))
         jobs.append(j)
         j.start()
-
     for j in jobs:
         j.join()
     print(str(datetime.datetime.now()), " END: multiprocessing")
-
     # write all unmapped sequences to a fasta file
     with open(os.path.join(outdir, align_type + ".unmapped.fa"), "w") as fh_unmapped_fasta:
         for readid, readseq in d_unmapped_reads.items():
             fh_unmapped_fasta.write(">" + readid + "\n" + readseq + "\n")
-        for readid in d_singleton_reads.keys():
-            fh_unmapped_fasta.write(">" + readid + "\n" + d_mapped_reads[readid] + "\n")
+        for n in range(processes):
+            with open(singletons_fasta + "." + str(n)) as infile:
+                for line in infile:
+                    fh_unmapped_fasta.write(line)
+            os.remove(singletons_fasta + "." + str(n))
     logging.info("| END: extract unmapped reads of " + align_type + " alignments")
     return
 
