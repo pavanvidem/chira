@@ -150,7 +150,7 @@ def merge_loci_blockbuster(outdir, distance, min_cluster_height, min_block_heigh
                     if bed_entry:
                         fh_out.write(bed_entry.rstrip(";") + "\n")
                     f = line.rstrip('\n').split('\t')
-                    bed_entry = '\t'.join([f[1], f[2], f[3], f[4], "\t"])
+                    bed_entry = '\t'.join([f[1], f[2], f[3], f[4]]) + "\t"
                 else:
                     bed_entry += line.split("\t")[3] + ";"
         fh_out.write(bed_entry.rstrip(";") + "\n")
