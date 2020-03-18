@@ -66,7 +66,7 @@ def reads_to_segments(bed, outdir, segment_overlap_fraction):
                          "\t".join(f[4:]))
 
 
-def merge_loci_and_quantify(outdir, alignment_overlap_fraction):
+def merge_loci_overlap(outdir, alignment_overlap_fraction):
     f_bed = os.path.join(outdir, "segments.bed")
     # Merge the aligned loci
     d_desc = defaultdict(lambda: defaultdict(list))
@@ -128,6 +128,35 @@ def merge_loci_and_quantify(outdir, alignment_overlap_fraction):
     return
 
 
+def merge_loci_blockbuster(outdir, distance, min_cluster_height, min_block_height, scale):
+    os.system("sort -k 1,1 -k 6,6 -k 2n,2 -k 3n,3 " + os.path.join(outdir, "segments.bed") + " > " +
+              os.path.join(outdir, "segments_sorted.bed"))
+    os.system("blockbuster.x " +
+              " -distance " + str(distance) +
+              " -minClusterHeight " + str(min_cluster_height) +
+              " -minBlockHeight " + str(min_block_height) +
+              " -scale " + str(scale) +
+              " -print 2 " +
+              os.path.join(outdir, "segments_sorted.bed") + " > " +
+              os.path.join(outdir, "segments.blockbuster"))
+
+    bed_entry = None
+    merged_bed = os.path.join(outdir, "merged.bed")
+
+    with open(merged_bed, "w") as fh_out:
+        with open(os.path.join(outdir, "segments.blockbuster")) as fh_blockbuster:
+            for line in fh_blockbuster:
+                if line.startswith('>'):
+                    if bed_entry:
+                        fh_out.write(bed_entry.rstrip(";") + "\n")
+                    f = line.rstrip('\n').split('\t')
+                    bed_entry = '\t'.join([f[1], f[2], f[3], f[4], "\t"])
+                else:
+                    bed_entry += line.split("\t")[3] + ";"
+        fh_out.write(bed_entry.rstrip(";") + "\n")
+    return
+
+
 def parse_annotations(gtf, outdir):
     n_exon = 1
     exon_rel_start = 0
@@ -172,8 +201,8 @@ def parse_annotations(gtf, outdir):
                                                      str(sub_feature.location.start),
                                                      str(sub_feature.location.end),
                                                      transcript_id + "_e" + str(n_exon).zfill(3),
-                                                     '0',
-                                                     '-' if str(sub_feature.location.strand) == '-1' else '+'
+                                                     "1",
+                                                     "-" if str(sub_feature.location.strand) == "-1" else "+"
                                                      ])
                     exon_len = sub_feature.location.end - sub_feature.location.start
                     exon_rel_end = exon_rel_start + exon_len
@@ -181,8 +210,8 @@ def parse_annotations(gtf, outdir):
                                                    str(exon_rel_start),
                                                    str(exon_rel_end),
                                                    transcript_id + "_e" + str(n_exon).zfill(3),
-                                                   '0',
-                                                   '-' if str(sub_feature.location.strand) == '-1' else '+'
+                                                   "1",
+                                                   "-" if str(sub_feature.location.strand) == "-1" else "+"
                                                    ])
                     fh_genomic_exons.write(gene_exon_bed_entry + "\n")
                     fh_transcriptomic_exons.write(tx_exon_bed_entry + "\n")
@@ -269,7 +298,7 @@ def transcript_to_genomic_pos(transcriptomic_bed, genomic_bed, f_geneexonbed, f_
                                        str(genomicstart) + "\t" +
                                        str(genomicend) + "\t" +
                                        readid +
-                                       "\t0\t" +
+                                       "\t1\t" +
                                        pol + '\n')
         # there are cases that a single mature miRNA presnt on different strands at different genomic positions
         # these are usually derived from different precusrsors
@@ -319,6 +348,8 @@ if __name__ == "__main__":
                                      usage='%(prog)s [-h] [-v,--version]',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
+    parser.add_argument('-bb', '--block_based', action='store_true', dest='block_based')
+
     parser.add_argument('-b', '--bed', action='store', dest='bed', required=True,
                         metavar='', help='Input BED file with alignments')
 
@@ -336,16 +367,40 @@ if __name__ == "__main__":
                         dest='segment_overlap_fraction',
                         help='Matching read positions with greater than this %% overlap are merged into a segment')
 
+    parser.add_argument('-d', '--distance', action='store', type=int, default=40, metavar='',
+                        dest='distance',
+                        help='Blockbuster parameter distance')
+
+    parser.add_argument('-mc', '--min_cluster_height', action='store', type=float, default=50, metavar='',
+                        dest='min_cluster_height',
+                        help='Blockbuster parameter minClusterHeight')
+
+    parser.add_argument('-mb', '--min_block_height', action='store', type=float, default=1, metavar='',
+                        dest='min_block_height',
+                        help='Blockbuster parameter minBlockHeight')
+
+    parser.add_argument('-sc', '--scale', action='store', type=score_float, default=0.5, metavar='',
+                        dest='scale',
+                        help='Blockbuster parameter scale')
+
     parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0')
 
     args = parser.parse_args()
 
     print('Input BED file                       : ' + args.bed)
     print('Output directory                     : ' + args.outdir)
+    print('Segment overlap fraction             : ' + str(args.segment_overlap_fraction))
     if args.gtf:
         print('Annotation file                      : ' + args.gtf)
-    print('Alignment overlap fraction           : ' + str(args.alignment_overlap_fraction))
-    print('Segment overlap fraction             : ' + str(args.segment_overlap_fraction))
+    if args.block_based:
+        print('Merge method                         : blockbuser based')
+        print('Blockbuster distance                 : ' + str(args.distance))
+        print('Blockbuster minClusterHeight         : ' + str(args.min_cluster_height))
+        print('Blockbuster minBlockHeight           : ' + str(args.min_block_height))
+        print('Blockbuster scale                    : ' + str(args.scale))
+    else:
+        print('Merge method                         : overlap based')
+        print('Alignment overlap fraction           : ' + str(args.alignment_overlap_fraction))
     print("===================================================================")
     reads_to_segments(args.bed, args.outdir, args.segment_overlap_fraction)
     if args.gtf:
@@ -360,4 +415,11 @@ if __name__ == "__main__":
     else:
         os.system(" ".join(["mv", os.path.join(args.outdir, "segments.temp.bed"),
                             os.path.join(args.outdir, "segments.bed")]))
-    merge_loci_and_quantify(args.outdir, args.alignment_overlap_fraction)
+    if args.block_based:
+        print("START: blockcuster based merging")
+        merge_loci_blockbuster(args.outdir, args.distance, args.min_cluster_height, args.min_block_height, args.scale)
+        print("END: blockcuster based merging")
+    else:
+        print("START: overlap based merging")
+        merge_loci_overlap(args.outdir, args.alignment_overlap_fraction)
+        print("END: overlap based merging")
