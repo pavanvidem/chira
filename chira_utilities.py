@@ -79,6 +79,6 @@ def bedentry(referenceid, reference_start, reference_end, readid, strand, cigars
                       reference_start,
                       reference_end,
                       ','.join([readid, referenceid, reference_start, reference_end, strand, cigarstring]),
-                      "0",
+                      "1",
                       strand])
     return line

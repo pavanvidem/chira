@@ -350,7 +350,7 @@ def clan_to_bed(outdir):
                 # TODO: consider both strands
                 fh_out.write("\t".join([ref_id, str(int(ref_start)-1), ref_end,
                                         ",".join([read_id, ref_id, str(int(ref_start)-1), ref_end, "+", cigar]),
-                                        "0", "+"]) + "\n")
+                                        "1", "+"]) + "\n")
 
 
 def score_float(x):
