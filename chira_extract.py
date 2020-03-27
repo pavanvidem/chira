@@ -414,7 +414,7 @@ def parse_counts_file(crl_file, tpm_cutoff, score_cutoff, f_ref, outdir):
             group_tpm = f[12]
             d_group_tpm[groupid] = float(group_tpm)
             b = f[9].split(":")
-            locus_bed_entry = "\t".join([b[0], b[1], b[2], f[9], "0", b[3]])
+            locus_bed_entry = "\t".join([":".join(b[0:-3]), b[-3], b[-2], f[9], "1", b[-1]])
             if locus_bed_entry not in l_loci_bed:
                 l_loci_bed.add(locus_bed_entry)
     # loci sequences are neeeded to hybridize
