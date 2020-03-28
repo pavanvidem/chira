@@ -514,7 +514,7 @@ if __name__ == "__main__":
         print(str(datetime.datetime.now()), " START:extract unmapped long")
         extract_unmapped("long", args.outdir, args.chimeric_overlap, args.stranded, args.processes)
         if os.path.exists(os.path.join(args.outdir, "long.bam")):
-            os.remove(os.path.join(args.outdir, "long.bam"))s
+            os.remove(os.path.join(args.outdir, "long.bam"))
 
         print(str(datetime.datetime.now()), " START:extract unmapped long")
         align_with_bwa("short", "index1", args.fasta, index1, args.outdir,
