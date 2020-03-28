@@ -10,7 +10,6 @@ import datetime
 import math
 import chira_utilities
 
-
 def align_with_bwa(align_type, index_type, fasta, refindex, outdir, seed_length, align_score, processes):
     """
         Funtion that maps the reads to the transcriptome. Different parameters
@@ -150,7 +149,11 @@ def extract_unmapped(align_type, outdir, chimeric_overlap, stranded, processes):
     d_read_positions = defaultdict(list)  # contains a tuple of matched base positions on the read and reference id
     for alignment in fh_bam.fetch(until_eof=True):
         readid = alignment.query_name
-        readseq = alignment.query_sequence
+        readseq = None
+        if alignment.is_reverse:
+            readseq = chira_utilities.reverse_complement(alignment.query_sequence)
+        else:
+            readseq = alignment.query_sequence
         proper_stranded_align_found = False
         if alignment.is_unmapped or \
                 (stranded == "fw" and alignment.is_reverse and not alignment.has_tag('XA')) or \
