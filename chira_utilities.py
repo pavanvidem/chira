@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import re
+import string
 
 
 def overlap(f, s):
@@ -82,3 +83,8 @@ def bedentry(referenceid, reference_start, reference_end, readid, strand, cigars
                       "1",
                       strand])
     return line
+
+
+def reverse_complement(seq):
+    tab = str.maketrans("ACTGactg", "TGACtgac")
+    return seq.translate(tab)[::-1]
