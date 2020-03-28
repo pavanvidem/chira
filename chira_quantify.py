@@ -338,3 +338,4 @@ if __name__ == "__main__":
                 fh_out.write("\t".join([l.strip("\n"),
                                         "{:.4g}".format(d_read_crl_fractions[read_id][crl_id]),
                                         "{:.4g}".format(d_crl_tpms[crl_id])]) + "\n")
+    os.remove(os.path.join(args.outdir, 'loci.txt'))

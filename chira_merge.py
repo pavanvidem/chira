@@ -412,6 +412,7 @@ if __name__ == "__main__":
                                   os.path.join(args.outdir, "segments.bed"),
                                   os.path.join(args.outdir, "genomic_exons.bed"),
                                   os.path.join(args.outdir, "transcriptomic_exons.bed"))
+        os.remove(os.path.join(args.outdir, "segments.temp.bed"))
     else:
         os.system(" ".join(["mv", os.path.join(args.outdir, "segments.temp.bed"),
                             os.path.join(args.outdir, "segments.bed")]))

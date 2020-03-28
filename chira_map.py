@@ -79,7 +79,7 @@ def merge_bams(outdir, align_type, processes):
         os.remove(os.path.join(outdir, "index1." + align_type + ".bam"))
     if os.path.exists(os.path.join(outdir, "index2." + align_type + ".bam")):
         os.remove(os.path.join(outdir, "index2." + align_type + ".bam"))
-
+    os.remove(os.path.join(outdir, align_type + ".unsorted.bam"))
     logging.info("| END: merge and sort " + align_type + " alignments both indices")
 
 
@@ -514,7 +514,7 @@ if __name__ == "__main__":
         print(str(datetime.datetime.now()), " START:extract unmapped long")
         extract_unmapped("long", args.outdir, args.chimeric_overlap, args.stranded, args.processes)
         if os.path.exists(os.path.join(args.outdir, "long.bam")):
-            os.remove(os.path.join(args.outdir, "long.bam"))
+            os.remove(os.path.join(args.outdir, "long.bam"))s
 
         print(str(datetime.datetime.now()), " START:extract unmapped long")
         align_with_bwa("short", "index1", args.fasta, index1, args.outdir,
