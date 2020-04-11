@@ -369,7 +369,7 @@ if __name__ == "__main__":
                                      usage='%(prog)s [-h] [-v,--version]',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument("-a", '--aligner', type=str, choices=["bwa", "clan"], default='bwa', required=True,
+    parser.add_argument("-a", '--aligner', type=str, choices=["bwa", "clan"], default='bwa', required=False,
                         dest='aligner', metavar='', help='Alignment program to use, bwa or clan')
 
     parser.add_argument('-i', '--query_fasta', action='store', dest='fasta', required=True,
@@ -429,7 +429,7 @@ if __name__ == "__main__":
                         dest='chimeric_overlap',
                         help='Maximum number of bases allowed between the chimeric segments of a read')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.1.5')
 
     args = parser.parse_args()
     print('Query fasta                          : ' + args.fasta)

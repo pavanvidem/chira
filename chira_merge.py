@@ -383,7 +383,7 @@ if __name__ == "__main__":
                         dest='scale',
                         help='Blockbuster parameter scale')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.1.5')
 
     args = parser.parse_args()
 

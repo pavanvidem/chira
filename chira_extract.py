@@ -505,7 +505,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--ref', action='store', dest='f_ref', required=False,
                         metavar='', help='Reference fasta file')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.1.5')
 
     args = parser.parse_args()
 

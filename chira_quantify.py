@@ -12,7 +12,7 @@ def create_crls(create_crls_too, bed, merged_bed, crl_file, crl_share, min_locus
     l_locilen = []
     l_locipos = []
     l_locireads = []
-    d_readlocus_transcripts = defaultdict(lambda: defaultdict(list))
+    d_readlocus_transcripts = defaultdict(list)
     with open(merged_bed) as fh_merged_bed:
         for n_locus, line in enumerate(fh_merged_bed):
             # chr14\t64814786\t64814804\t-\ttag_1308593|1|r,ENSMUST00000176386;tag_1308594|2|r,ENSMUST00000176386
@@ -27,7 +27,7 @@ def create_crls(create_crls_too, bed, merged_bed, crl_file, crl_share, min_locus
                 [segmentid, transcriptid, start, end, tx_strand, cigar] = alignment.split(',')
                 transcriptid = alignment.split(',')[1]
                 transcriptid_pos = '\t'.join([transcriptid, start, end, tx_strand, cigar])
-                d_readlocus_transcripts[segmentid][n_locus].append(transcriptid_pos)
+                d_readlocus_transcripts[segmentid+str(n_locus)].append(transcriptid_pos)
                 if segmentid not in l_locusreads:
                     l_locusreads.add(segmentid)
             l_locireads.append(set(l_locusreads))
@@ -133,7 +133,7 @@ def create_crls(create_crls_too, bed, merged_bed, crl_file, crl_share, min_locus
 
     # read the segments BED once again to get the genomic positions
     # to reduce the memory usage
-    d_read_genomic_pos = defaultdict(lambda: defaultdict(str))
+    d_read_genomic_pos = defaultdict(str)
     with open(bed) as fh_bed:
         for line in fh_bed:
             b = line.rstrip('\n').split('\t')
@@ -143,10 +143,9 @@ def create_crls(create_crls_too, bed, merged_bed, crl_file, crl_share, min_locus
             transcriptid_pos = '\t'.join(desc[1:])
             # at this level reads have unique ids preceeded by a serialnumber
             # each read can have multiple alignements on same transcript
-            d_read_genomic_pos[transcriptid_pos][readid] = pos
+            d_read_genomic_pos[transcriptid_pos+readid] = pos
 
     print(str(datetime.datetime.now()), "Start: Writing CRLs")
-    d_duplicate_entries = {}
     with open(crl_file, "w") as fh_groups_file:
         # enumerate again because of above processing some crlids might be missing
         for crlid, d_crlloci in enumerate(d_crl_locus_reads.values()):
@@ -158,20 +157,17 @@ def create_crls(create_crls_too, bed, merged_bed, crl_file, crl_share, min_locus
                 else:
                     locus_share = 1.0
                 for readid in sorted(l_locusreads):
-                    for transcriptid_pos in sorted(d_readlocus_transcripts[readid][locusid]):
+                    for transcriptid_pos in sorted(d_readlocus_transcripts[readid+str(locusid)]):
                         entry = "\t".join([readid,
                                            transcriptid_pos.split('\t')[0],
                                            str(locusid),
                                            str(crlid),
                                            '\t'.join(transcriptid_pos.split('\t')[1:]),
-                                           d_read_genomic_pos[transcriptid_pos][readid],
+                                           d_read_genomic_pos[transcriptid_pos+readid],
                                            l_locipos[locusid],
                                            "{:.4g}".format(locus_share)]
                                           )
-                        if entry in d_duplicate_entries:
-                            continue
                         fh_groups_file.write(entry + "\n")
-                        d_duplicate_entries[entry] = 1
     print(str(datetime.datetime.now()), "End: CRLs written")
 
 
@@ -313,7 +309,7 @@ if __name__ == "__main__":
     parser.add_argument("-crl", '--create_crls_too', action='store_true', dest='create_crls_too',
                         help="Create CRLs too")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.1.5')
 
     args = parser.parse_args()
 
@@ -323,7 +319,7 @@ if __name__ == "__main__":
     print('Minimum locus size                   : ' + str(args.min_locus_size))
     print('CRL share                            : ' + str(args.crl_share))
     print('EM threshold                         : ' + str(args.em_thresh))
-    print('Create CRLs too                     : ' + str(args.create_crls_too))
+    print('Create CRLs too                      : ' + str(args.create_crls_too))
     print("===================================================================")
 
     create_crls(args.create_crls_too, args.bed, args.merged_bed,
