@@ -1,4 +1,4 @@
-# ChiRA - Chimeric Read Annotator
+# ChiRA - Chimeric Read Analyzer
 
 ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as CLASH, CLEAR-CLIP, PARIS, LIGR-Seq etc. Following are the descriptions of the each tool. Here we provide descriptions about the input and ouptput files. For the detailed description of the other parameters please look at the help texts of tools.
 

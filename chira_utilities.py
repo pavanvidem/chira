@@ -1,7 +1,15 @@
 #!/usr/bin/env python
+import argparse
 import re
-import string
+from Bio import SeqIO
+from datetime import datetime
 
+
+def score_float(x):
+    x = float(x)
+    if x < 0.0 or x > 1.0:
+        raise argparse.ArgumentTypeError("%r not in range [0.0, 1.0]" % (x,))
+    return x
 
 def overlap(f, s):
     return max(0, min(f[1], s[1]) - max(f[0], s[0]))
@@ -16,7 +24,7 @@ def median(x):
 
 
 def query_length(cigar, is_reverse):
-    cigar_tup = re.findall(r'(\d+)([MISH=X])', cigar)
+    cigar_tup = re.findall(r'(\d+)([HIMSX=])', cigar)
     read_length = 0
     if is_reverse:
         cigar_tup = reversed(cigar_tup)
@@ -26,7 +34,7 @@ def query_length(cigar, is_reverse):
 
 
 def match_positions(cigar, is_reverse):
-    cigar_tup = re.findall(r'(\d+)([MISH=X])', cigar)
+    cigar_tup = re.findall(r'(\d+)([HIMSX=])', cigar)
     match_start = match_end = 0
     if is_reverse:
         cigar_tup = reversed(cigar_tup)
@@ -43,30 +51,26 @@ def match_positions(cigar, is_reverse):
     return match_start, match_end
 
 
-def switch_alignments(cigar1, cigar2, is_reverse1, is_reverse2, max_allowed_overlap):
+def is_chimeric(cigar1, cigar2, is_reverse1, is_reverse2, max_allowed_overlap):
     match_start1, match_end1 = match_positions(cigar1, is_reverse1)
     match_start2, match_end2 = match_positions(cigar2, is_reverse2)
+    chimeric = True
     if overlap([match_start1, match_end1], [match_start2, match_end2]) > max_allowed_overlap:
-        return None
-    else:
-        if match_start1 < match_start2:
-            return "n"
-        else:
-            return "y"
+        chimeric = False
+    return chimeric
 
 
-# TODO check if substracting the NM can give the no of matched bases
-def alignment_score(cigar, nm):
-    cigar_tup = re.findall(r'(\d+)(M)', cigar)
-    n_matches = 0
+def alignment_length(cigar):
+    # everything except clipped
+    cigar_tup = re.findall(r'(\d+)([DIMX=])', cigar)
+    align_len = 0
     for c in cigar_tup:
-        n_matches += int(c[0])
-    # TODO be careful with the hardcoded mismatch score of 4
-    return n_matches - int(nm) * 4
+        align_len += int(c[0])
+    return align_len
 
 
 def alignment_end(start, cigar, is_reverse):
-    cigar_tup = re.findall(r'(\d+)([MDN=X])', cigar)
+    cigar_tup = re.findall(r'(\d+)([DMNX=])', cigar)
     end = int(start)
     if is_reverse:
         cigar_tup = reversed(cigar_tup)
@@ -88,3 +92,14 @@ def bedentry(referenceid, reference_start, reference_end, readid, strand, cigars
 def reverse_complement(seq):
     tab = str.maketrans("ACTGactg", "TGACtgac")
     return seq.translate(tab)[::-1]
+
+
+def extract_reflengths(ref_fasta, d_reflen):
+    fa_ref = SeqIO.parse(open(ref_fasta), 'fasta')
+    for record in fa_ref:
+        d_reflen[record.id] = len(record)
+    return
+
+
+def print_w_time(message):
+    print("[" + datetime.now().strftime('%d-%m-%Y %H:%M:%S') + "] " + message)
