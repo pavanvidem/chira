@@ -11,6 +11,7 @@ def score_float(x):
         raise argparse.ArgumentTypeError("%r not in range [0.0, 1.0]" % (x,))
     return x
 
+
 def overlap(f, s):
     return max(0, min(f[1], s[1]) - max(f[0], s[0]))
 

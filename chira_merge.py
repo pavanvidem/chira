@@ -151,7 +151,7 @@ def merge_loci_overlap(outdir, alignment_overlap_fraction):
     print(str(datetime.datetime.now()), "merging overlapping alignments")
     merged_bed = os.path.join(outdir, "merged.bed")
     with open(merged_bed, "w") as fh_out:
-        # TODO: consider cases where a read belongs to different overlapping loci
+
         for chrom in sorted(d_desc.keys()):
             startpos_sorted = sorted(d_desc[chrom], key=lambda tup: tup[0])
             t_merged = []
