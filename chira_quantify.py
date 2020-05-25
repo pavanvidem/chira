@@ -49,9 +49,9 @@ def build_crls(build_crls_too, bed, merged_bed, crl_file, crl_share_cutoff, min_
         for n_locus, l_locusreads in l_qualified_locireads:
             already_crl_member = False
             l_matched_crls = []
-            # substraction of 0.1 is a heuristic to loosly filter out the loci based on size
-            lower_bound = len(l_locusreads) * (crl_share_cutoff - 0.1)
-            upper_bound = len(l_locusreads) / (crl_share_cutoff - 0.1)
+            # lower and uppder bounds for filtering crls based on their size
+            lower_bound = len(l_locusreads) * (1 - crl_share_cutoff)
+            upper_bound = len(l_locusreads) / (1 - crl_share_cutoff)
             # traverse in reverse order because the latest CRL is the last one
             for crlid in range(len(d_crl_reads) - 1, 0, -1):
                 l_crlreads = set(d_crl_reads[crlid])
@@ -68,6 +68,8 @@ def build_crls(build_crls_too, bed, merged_bed, crl_file, crl_share_cutoff, min_
                     # identical loci are multi-mapped loci with the same set of identical set of multi-mapped reads
                     l_matched_crls.append(crlid)
                     already_crl_member = True
+                else:
+                    break
 
             # n_locus is not a member of any crl, hence create a new crl
             if not already_crl_member:
@@ -134,8 +136,7 @@ def build_crls(build_crls_too, bed, merged_bed, crl_file, crl_share_cutoff, min_
 
     print("There are a total of " + str(len(d_crl_locus_reads)) + " uniq crls")
 
-    # read the segments BED once again to get the genomic positions
-    # to reduce the memory usage
+    # read the segments BED to get the genomic positions
     d_read_genomic_pos = defaultdict(str)
     with open(bed) as fh_bed:
         for line in fh_bed:
@@ -167,30 +168,29 @@ def build_crls(build_crls_too, bed, merged_bed, crl_file, crl_share_cutoff, min_
                                            '\t'.join(transcriptid_pos.split('\t')[1:]),
                                            d_read_genomic_pos[transcriptid_pos+segmentid],
                                            l_locipos[locusid],
-                                           "{:.4g}".format(locus_share)]
+                                           "{:.2f}".format(locus_share)]
                                           )
                         fh_crl_file.write(entry + "\n")
 
 
-def em(d_read_crl_shares, d_crl_counts, em_threshold, i=1):
+def em(d_read_crl_shares, d_crl_counts, l_multimap_readids, em_threshold, i=1):
     print("iteration: " + str(i))
-    d_read_crl_shares_new = {}
     d_crl_counts_new = {}
 
-    for readid in d_read_crl_shares.keys():
+    for readid in l_multimap_readids:
+        if len(d_read_crl_shares[readid]) == 1:
+            continue
         total_crl_count = 0
-        d_read_crl_shares_new[readid] = {}
         for crlid in d_read_crl_shares[readid]:
             total_crl_count += d_crl_counts[crlid]
         for crlid in d_read_crl_shares[readid]:
-            d_read_crl_shares_new[readid][crlid] = d_crl_counts[crlid] / float(total_crl_count)
-    d_read_crl_shares.clear()
+            d_read_crl_shares[readid][crlid] = d_crl_counts[crlid] / float(total_crl_count)
 
-    for readid in d_read_crl_shares_new.keys():
-        for crlid in d_read_crl_shares_new[readid]:
+    for readid in d_read_crl_shares.keys():
+        for crlid in d_read_crl_shares[readid]:
             if crlid not in d_crl_counts_new:
                 d_crl_counts_new[crlid] = 0
-            d_crl_counts_new[crlid] += d_read_crl_shares_new[readid][crlid]
+            d_crl_counts_new[crlid] += d_read_crl_shares[readid][crlid]
 
     equal = True
     for crlid in d_crl_counts.keys():
@@ -198,11 +198,11 @@ def em(d_read_crl_shares, d_crl_counts, em_threshold, i=1):
             equal = False
             break
     if equal:
-        return d_read_crl_shares_new
+        return d_read_crl_shares
     else:
         d_crl_counts.clear()
         i += 1
-        return em(d_read_crl_shares_new, d_crl_counts_new, em_threshold, i)
+        return em(d_read_crl_shares, d_crl_counts_new, l_multimap_readids, em_threshold, i)
 
 
 def tpm(d_crl_expression, d_crl_loci_len):
@@ -225,6 +225,7 @@ def quantify_crls(crl_file, em_threshold):
     d_read_crl_shares = defaultdict(lambda: defaultdict(float))
     d_crl_loci_len = defaultdict(lambda: defaultdict(int))
     d_crl_expression = defaultdict(float)
+    l_multimap_readids = []
 
     fh_crl_file = open(crl_file, "r")
     for line in fh_crl_file:
@@ -237,11 +238,12 @@ def quantify_crls(crl_file, em_threshold):
         locuslength = int(pos[-2]) - int(pos[-3]) + 1
         # a single locus can belong to multiple crls
         # one read can be part of multiple crls
-        d_read_crl_shares[readid][crlid] = 0
+        d_read_crl_shares[readid][crlid] = 1
         d_crl_loci_len[crlid][locusid] = locuslength
     fh_crl_file.close()
 
     d_crl_counts = {}
+
     for readid in d_read_crl_shares.keys():
         for crlid in d_read_crl_shares[readid].keys():
             d_read_crl_shares[readid][crlid] = 1 / float(len(d_read_crl_shares[readid]))
@@ -249,13 +251,12 @@ def quantify_crls(crl_file, em_threshold):
                 d_crl_counts[crlid] = 0
             d_crl_counts[crlid] += d_read_crl_shares[readid][crlid]
 
+        if len(d_read_crl_shares[readid]) > 1:
+            l_multimap_readids.append(readid)
+
     sys.setrecursionlimit(10000)
-    d_res = em(d_read_crl_shares, d_crl_counts, em_threshold)
+    d_res = em(d_read_crl_shares, d_crl_counts, l_multimap_readids, em_threshold)
     for readid in d_res.keys():
-        # now d_read_crls should contain only multi mapped reads because because
-        # uniquely mapped reads were already removed
-        # set() because a read can occur 2 times at a locus in file with 2 tx ids
-        # one read can be part of multiple crls
         for crlid in d_res[readid]:
             d_crl_expression[crlid] += d_res[readid][crlid]
 
@@ -284,7 +285,7 @@ if __name__ == "__main__":
                         help='Minimum fraction of reads of a locus that must overlap with all CRL loci '
                              'inorder to merge it into that CRL.')
 
-    parser.add_argument('-ls', '--min_locus_size', action='store', type=int, default=5, metavar='',
+    parser.add_argument('-ls', '--min_locus_size', action='store', type=int, default=10, metavar='',
                         dest='min_locus_size',
                         help='Minimum number of reads a locus should have in order to participate in CRL creation.'
                              'Always set this value relative to your sequencing depth. Setting this to lower leads'
@@ -299,7 +300,7 @@ if __name__ == "__main__":
     parser.add_argument("-crl", '--build_crls_too', action='store_true', dest='build_crls_too',
                         help="Create CRLs too")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.2.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.0')
 
     args = parser.parse_args()
 
@@ -321,13 +322,17 @@ if __name__ == "__main__":
     chira_utilities.print_w_time("END: Quantify CRLs")
     chira_utilities.print_w_time("START: Write CRLs")
     with open(os.path.join(args.outdir, 'loci.txt')) as fh_in:
-        with open(os.path.join(args.outdir, 'loci.counts'), "w") as fh_out:
+        with open(os.path.join(args.outdir, 'loci.counts.temp'), "w") as fh_out:
             for l in fh_in:
                 k = l.rstrip("\n").split("\t")
                 read_id = k[0]
                 crl_id = k[3]
                 fh_out.write("\t".join([l.strip("\n"),
-                                        "{:.4g}".format(d_read_crl_fractions[read_id][crl_id]),
+                                        "{:.2f}".format(d_read_crl_fractions[read_id][crl_id]),
                                         "{:.4g}".format(d_crl_tpms[crl_id])]) + "\n")
     chira_utilities.print_w_time("END: Write CRLs")
     os.remove(os.path.join(args.outdir, 'loci.txt'))
+    chira_utilities.print_w_time("START: Sort CRLs file by read name")
+    os.system("sort -V " + os.path.join(args.outdir, 'loci.counts.temp') + " > " + os.path.join(args.outdir, 'loci.counts'))
+    os.remove(os.path.join(args.outdir, 'loci.counts.temp'))
+    chira_utilities.print_w_time("END: Sort CRLs file by read name")
