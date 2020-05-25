@@ -95,9 +95,9 @@ def guess_region(transcriptid, read_pos):
     return region
 
 
-def hybridize_with_intarna(seq1, seq2, intarna_mode, query_acc, target_acc, noseed):
+def hybridize_with_intarna(seq1, seq2, intarna_mode, accessibility, noseed):
     # assuming first sequence query and second one is target
-    output = os.popen(" ".join(["IntaRNA", "-m", intarna_mode, "--qAcc", query_acc, "--tAcc", target_acc, noseed,
+    output = os.popen(" ".join(["IntaRNA", "-m", intarna_mode, "--acc", accessibility, noseed,
                                 "--outMode C", "-q", seq1, "-t", seq2])).read()
     dotbracket = energy = pos = "NA"
     for alignment in output.split("\n"):
@@ -355,7 +355,7 @@ def write_chimeras(chunk_start, chunk_end, total_read_count, d_ref_lengths1, d_r
                 fh_bed.write(bed_line + "\n")
 
 
-def hybridize_and_write(outdir, intarna_mode, query_acc, target_acc, noseed, n):
+def hybridize_and_write(outdir, intarna_mode, accessibility, noseed, n):
     bed = os.path.join(outdir, "loci.bed.") + n
     fa = os.path.join(outdir, "loci.fa.") + n
 
@@ -382,7 +382,7 @@ def hybridize_and_write(outdir, intarna_mode, query_acc, target_acc, noseed, n):
                     dotbracket, pos, energy = d_hybrids[locuspos1, locuspos2]
                 else:
                     dotbracket, pos, energy = hybridize_with_intarna(seq1, seq2, intarna_mode,
-                                                                     query_acc, target_acc, noseed)
+                                                                     accessibility, noseed)
                     d_hybrids[locuspos1, locuspos2] = dotbracket, pos, energy
             a.append(seq1 + "&" + seq2)
             a.append(dotbracket)
@@ -526,10 +526,10 @@ def write_interaction(fh_out, interaction, d_interactions, common_info):
     fh_out.write("\t".join([interaction,
                             str(len(set(d_interactions["readid"]))),
                             common_info,
-                            ";".join(set(d_interactions["region1"])),
-                            ";".join(set(d_interactions["region2"])),
-                            ";".join(set(d_interactions["ref1"])),
-                            ";".join(set(d_interactions["ref2"]))]) + "\n")
+                            ";".join(sorted(set(d_interactions["region1"]))),
+                            ";".join(sorted(set(d_interactions["region2"]))),
+                            ";".join(sorted(set(d_interactions["ref1"]))),
+                            ";".join(sorted(set(d_interactions["ref2"])))]) + "\n")
 
 
 def write_interaction_summary(outdir):
@@ -610,11 +610,8 @@ if __name__ == "__main__":
     parser.add_argument("-ns", '--noSeed', action='store_true', dest='no_seed',
                         help="Do not enforce seed interactions")
 
-    parser.add_argument("-qa", '--query_acc', type=str, choices=["C", "N"], default='C', required=False,
-                        dest='query_acc', metavar='', help='Query accessibility computation: C (compute) or N (not)')
-
-    parser.add_argument("-ta", '--target_acc', type=str, choices=["C", "N"], default='C', required=False,
-                        dest='target_acc', metavar='', help='Target accessibility computation: C (compute) or N (not)')
+    parser.add_argument("-a", '--accessibility', type=str, choices=["C", "N"], default='N', required=False,
+                        dest='accessibility', metavar='', help='Accessibility computation: C (compute) or N (not)')
 
     parser.add_argument("-m", '--intarna_mode', type=str, choices=["H", "M", "S"], default='H', required=False,
                         dest='intarna_mode', metavar='', help='IntaRNA mode to use: H (heuristic) or M (exact) or S (seed-only)')
@@ -735,8 +732,7 @@ if __name__ == "__main__":
             noseed_param = ""
             if args.no_seed:
                 noseed_param = "--noSeed"
-            j = Process(target=hybridize_and_write, args=(args.outdir, args.intarna_mode, args.query_acc,
-                                                          args.target_acc, noseed_param, str(k)))
+            j = Process(target=hybridize_and_write, args=(args.outdir, args.intarna_mode, args.accessibility, noseed_param, str(k)))
             jobs.append(j)
 
         for j in jobs:
