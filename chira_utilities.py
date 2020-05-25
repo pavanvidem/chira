@@ -42,10 +42,11 @@ def match_positions(cigar, is_reverse):
     for c in cigar_tup:
         if c[1] == "S" or c[1] == "H":
             if not match_start:
-                match_start = match_end = int(c[0]) + 1
+                match_start = int(c[0]) + 1
+                match_end = int(c[0])
         elif c[1] == "M":
             if match_start:
-                match_end = match_end + int(c[0]) - 1
+                match_end = match_end + int(c[0])
             else:
                 match_start = 1
                 match_end = int(c[0])

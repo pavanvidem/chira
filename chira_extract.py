@@ -6,10 +6,11 @@ import sys
 from collections import defaultdict
 from multiprocessing import Process
 import itertools
-import math
+import datetime
 from BCBio import GFF
 from Bio import SeqIO
 import subprocess
+import math
 
 
 d_gene_annotations = defaultdict(lambda: defaultdict(str))
@@ -94,39 +95,36 @@ def guess_region(transcriptid, read_pos):
     return region
 
 
-def hybridize_with_intarna(seq1, seq2):
-    output = os.popen("IntaRNA -t " + seq1 + " -q " + seq2 + " --outMode C").read()
-    alignment = output.split("\n")[1]
+def hybridize_with_intarna(seq1, seq2, intarna_mode, accessibility, noseed):
+    # assuming first sequence query and second one is target
+    output = os.popen(" ".join(["IntaRNA", "-m", intarna_mode, "--acc", accessibility, noseed,
+                                "--outMode C", "-q", seq1, "-t", seq2])).read()
     dotbracket = energy = pos = "NA"
-    if alignment:
-        dotbracket = alignment.split(";")[7]
-        energy = alignment.split(";")[8]
-        pos = alignment.split(";")[1] + "&" + alignment.split(";")[4]
+    for alignment in output.split("\n"):
+        if alignment.startswith('target'):
+            dotbracket = alignment.split(";")[7]
+            energy = alignment.split(";")[8]
+            pos = alignment.split(";")[1] + "&" + alignment.split(";")[4]
+            break
     return dotbracket, pos, energy
 
 
+def add_locus_to_set(locus, l_loci_bed):
+    pos = locus.split(":")
+    bed = "\t".join([":".join(pos[0:-3]), pos[-3], pos[-2], locus, "1", pos[-1]])
+    if bed not in l_loci_bed:
+        l_loci_bed.add(bed)
+
+
 def update_best_hits(l_best_hits, hit_type):
-    longest = 0
-    for hit in l_best_hits:
-        if hit_type == "chimera":
-            hit_length = int(hit[10]) - int(hit[9]) + int(hit[14]) - int(hit[13])
-        elif hit_type == "singleton":
-            hit_length = int(hit[6]) - int(hit[5])
-        if hit_length > longest:
-            longest = hit_length
     best_tpm = 0
     for i, hit in enumerate(l_best_hits):
         if hit_type == "chimera":
-            hit_length = int(hit[10]) - int(hit[9]) + int(hit[14]) - int(hit[13])
             tpm = float(hit[24]) + float(hit[25])
         elif hit_type == "singleton":
-            hit_length = int(hit[6]) - int(hit[5])
             tpm = float(hit[13])
-        if hit_length < 0.9 * longest:
-            l_best_hits[i] = None
-        else:
-            if tpm > best_tpm:
-                best_tpm = tpm
+        if tpm > best_tpm:
+            best_tpm = tpm
     l_best_hits = [n for n in l_best_hits if n is not None]
     for i, hit in enumerate(l_best_hits):
         if hit_type == "chimera":
@@ -163,156 +161,235 @@ def extract_annotations(transcriptid, genomic_pos, d_regions, f_gtf):
     return geneid, name, region, tx_length
 
 
-def write_chimeras(l_readids, l_loci, d_loci_seqs, d_ref_lengths1, d_ref_lengths2, chimeric_overlap, hybridize,
-                   f_gtf, file_chimeras, file_singletons, n):
-    d_hybrids = defaultdict()
-    d_regions = defaultdict()
-    with open(file_chimeras + "." + n, "w") as fh_chimeras, open(file_singletons + "." + n, "w") as fh_singletons:
-        for i, readid in enumerate(l_readids):
-            loci = l_loci[i]
-            chimera_found = False
-            l_best_chimeras = []
-            l_best_singletons = []
-            alignment_pairs = list(itertools.combinations(loci, 2))
-            # if there are no pairs, then it is a long singleton
-            for alignment1, alignment2 in alignment_pairs:
-                [segmentid1, transcriptid1, locusid1, groupid1, tx_pos_start1, tx_pos_end1, tx_pos_strand1,
-                 cigar1, genomic_pos1, locuspos1, locusshare1, prob1, tpm1] = alignment1.rstrip('\n').split('\t')
-                [segmentid2, transcriptid2, locusid2, groupid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
-                 cigar2, genomic_pos2, locuspos2, locusshare2, prob2, tpm2] = alignment2.rstrip('\n').split('\t')
-                # these are multimappings of the same segment
-                if segmentid1 == segmentid2 or locuspos1 == locuspos2 or groupid1 == groupid2:
-                    continue
-                # check these are chimeric arms
-                if not chira_utilities.is_chimeric(cigar1, cigar2, tx_pos_strand1 == "-",
-                                                   tx_pos_strand2 == "-", chimeric_overlap):
-                    continue
-                switch_alignments = False
-                # if the second reference is provided then it is assumed to be a split reference
-                if len(d_ref_lengths2) != 0:
-                    # check if both transcripts are from the same reference database
-                    if transcriptid1 in d_ref_lengths1 and transcriptid2 in d_ref_lengths1 or \
-                            transcriptid1 in d_ref_lengths2 and transcriptid2 in d_ref_lengths2:
-                        continue
-                    # switch orientation of the alignments based on references
-                    if transcriptid1 in d_ref_lengths2 and transcriptid2 in d_ref_lengths1:
-                        switch_alignments = True
-                # not a split reference
-                else:
-                    # then switch alignments based on the reference id
-                    if transcriptid2 > transcriptid1:
-                        switch_alignments = True
-                if switch_alignments:
-                    [segmentid1, transcriptid1, locusid1, groupid1, tx_pos_start1, tx_pos_end1, tx_pos_strand1,
-                     cigar1, genomic_pos1, locuspos1, locusshare1, prob1, tpm1] = alignment2.rstrip('\n').split(
-                        '\t')
-                    [segmentid2, transcriptid2, locusid2, groupid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
-                     cigar2, genomic_pos2, locuspos2, locusshare2, prob2, tpm2] = alignment1.rstrip('\n').split(
-                        '\t')
-                first_locus_score = float(prob1) * float(locusshare1)
-                second_locus_score = float(prob2) * float(locusshare2)
-                combined_score = first_locus_score + second_locus_score
+def filter_alignments(lines, tpm_threshold, score_cutoff):
+    l_read_aligns = []
+    for line in lines:
+        f = line.rstrip('\n').split('\t')
+        group_tpm = f[12]
+        prob = f[10]
+        locusshare = f[11]
+        if float(group_tpm) < tpm_threshold:
+            continue
+        locus_score = float(prob) * float(locusshare)
+        if locus_score < score_cutoff:
+            continue
+        l_read_aligns.append(line)
+    return l_read_aligns
 
-                geneid1, name1, region1, tx_len1 = extract_annotations(transcriptid1,
-                                                                       genomic_pos1,
-                                                                       d_regions,
-                                                                       f_gtf)
-                geneid2, name2, region2, tx_len2 = extract_annotations(transcriptid2,
-                                                                       genomic_pos2,
-                                                                       d_regions,
-                                                                       f_gtf)
 
-                arm1_start, arm1_end = chira_utilities.match_positions(cigar1, tx_pos_strand1 == "-")
-                arm2_start, arm2_end = chira_utilities.match_positions(cigar2, tx_pos_strand2 == "-")
-                read_length = chira_utilities.query_length(cigar1, tx_pos_strand1 == "-")
+def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_ref_lengths2, f_gtf,
+                      d_regions, chimeric_overlap, fh_chimeras, fh_singletons, hybridize):
+    chimera_found = False
+    l_best_chimeras = []
+    l_best_singletons = []
+    alignment_pairs = list(itertools.combinations(l_read_alignments, 2))
 
-                if tx_len1 == "NA" or tx_len2 == "NA":
-                    if len(d_ref_lengths2) == 0:
-                        tx_len1 = d_reflen1[transcriptid1]
-                        tx_len2 = d_reflen1[transcriptid2]
-                    else:
-                        try:
-                            tx_len1 = d_reflen1[transcriptid1]
-                            tx_len2 = d_reflen2[transcriptid2]
-                        except KeyError:
-                            tx_len1 = d_reflen2[transcriptid1]
-                            tx_len2 = d_reflen1[transcriptid2]
+    for alignment1, alignment2 in alignment_pairs:
+        [segmentid1, transcriptid1, locusid1, groupid1, tx_pos_start1, tx_pos_end1, tx_pos_strand1,
+         cigar1, genomic_pos1, locuspos1, locusshare1, prob1, tpm1] = alignment1.rstrip('\n').split('\t')
+        [segmentid2, transcriptid2, locusid2, groupid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
+         cigar2, genomic_pos2, locuspos2, locusshare2, prob2, tpm2] = alignment2.rstrip('\n').split('\t')
+        # these are multimappings of the same segment
+        if segmentid1 == segmentid2 or locuspos1 == locuspos2 or groupid1 == groupid2 or\
+                float(prob1) == 0 or float(prob2) == 0:
+            continue
+        # check these are chimeric arms
+        if not chira_utilities.is_chimeric(cigar1, cigar2, tx_pos_strand1 == "-",
+                                           tx_pos_strand2 == "-", chimeric_overlap):
+            continue
+        switch_alignments = False
+        # if the second reference is provided then it is assumed to be a split reference
+        if len(d_ref_lengths2) != 0:
+            # check if both transcripts are from the same reference database
+            if transcriptid1 in d_ref_lengths1 and transcriptid2 in d_ref_lengths1 or \
+                    transcriptid1 in d_ref_lengths2 and transcriptid2 in d_ref_lengths2:
+                continue
+            # switch orientation of the alignments based on references
+            if transcriptid1 in d_ref_lengths2 or transcriptid2 in d_ref_lengths1:
+                switch_alignments = True
+        # not a split reference
+        else:
+            # then switch alignments based on the reference id
+            if transcriptid2 > transcriptid1:
+                switch_alignments = True
+        if switch_alignments:
+            [segmentid1, transcriptid1, locusid1, groupid1, tx_pos_start1, tx_pos_end1, tx_pos_strand1,
+             cigar1, genomic_pos1, locuspos1, locusshare1, prob1, tpm1] = alignment2.rstrip('\n').split(
+                '\t')
+            [segmentid2, transcriptid2, locusid2, groupid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
+             cigar2, genomic_pos2, locuspos2, locusshare2, prob2, tpm2] = alignment1.rstrip('\n').split(
+                '\t')
+        first_locus_score = float("{:.2f}".format(float(prob1) * float(locusshare1)))
+        second_locus_score = float("{:.2f}".format(float(prob2) * float(locusshare2)))
+        combined_score = first_locus_score + second_locus_score
+        tpm1 = "{:.2f}".format(float(tpm1) * float(locusshare1))
+        tpm2 = "{:.2f}".format(float(tpm2) * float(locusshare2))
 
-                chimera = [readid,
-                           transcriptid1, transcriptid2,
-                           geneid1, geneid2,
-                           name1, name2,
-                           region1, region2,
-                           str(tx_pos_start1), str(tx_pos_end1), tx_pos_strand1, str(tx_len1),
-                           str(tx_pos_start2), str(tx_pos_end2), tx_pos_strand2, str(tx_len2),
-                           ",".join([str(arm1_start), str(arm1_end), str(arm2_start), str(arm2_end), str(read_length)]),
-                           genomic_pos1, genomic_pos2,
-                           locuspos1, locuspos2,
-                           groupid1, groupid2,
-                           str(float(tpm1) * float(locusshare1)), str(float(tpm2) * float(locusshare2)),
-                           str(first_locus_score), str(second_locus_score), str(combined_score)]
-                chimera_found = True
-                l_best_chimeras.append(chimera)
+        geneid1, name1, region1, tx_len1 = extract_annotations(transcriptid1,
+                                                               genomic_pos1,
+                                                               d_regions,
+                                                               f_gtf)
+        geneid2, name2, region2, tx_len2 = extract_annotations(transcriptid2,
+                                                               genomic_pos2,
+                                                               d_regions,
+                                                               f_gtf)
 
-            if not chimera_found:
-                # singleton read
-                for alignment in loci:
-                    [segmentid, transcriptid, locusid, groupid, tx_pos_start, tx_pos_end, tx_pos_strand,
-                     cigar, genomic_pos, locuspos, locusshare, prob, tpm] = alignment.rstrip('\n').split('\t')
+        arm1_start, arm1_end = chira_utilities.match_positions(cigar1, tx_pos_strand1 == "-")
+        arm2_start, arm2_end = chira_utilities.match_positions(cigar2, tx_pos_strand2 == "-")
+        read_length = chira_utilities.query_length(cigar1, tx_pos_strand1 == "-")
 
-                    geneid, name, region, tx_len = extract_annotations(transcriptid,
-                                                                       genomic_pos,
-                                                                       d_regions,
-                                                                       f_gtf)
-
-                    first_locus_score = combined_score = float(prob) * float(locusshare)
-                    seq = "NA"
-                    if locuspos in d_loci_seqs:
-                        seq = d_loci_seqs[locuspos]
-
-                    arm_start, arm_end = chira_utilities.match_positions(cigar, tx_pos_strand == "-")
-                    read_length = chira_utilities.query_length(cigar, tx_pos_strand == "-")
-
-                    singleton = [readid,
-                                 transcriptid,
-                                 geneid,
-                                 name,
-                                 region,
-                                 str(tx_pos_start), str(tx_pos_end), tx_pos_strand, str(tx_len),
-                                 ",".join([str(arm_start), str(arm_end), str(read_length)]),
-                                 genomic_pos,
-                                 locuspos,
-                                 groupid,
-                                 str(float(tpm) * float(locusshare)),
-                                 str(first_locus_score),
-                                 str(combined_score),
-                                 seq]
-                    l_best_singletons.append(singleton)
-
-            if len(l_best_chimeras) > 0:
-                l_best_chimeras = update_best_hits(l_best_chimeras, "chimera")
-                for a in l_best_chimeras:
-                    seq1 = seq2 = dotbracket = pos = energy = "NA"
-                    locuspos1 = a[20]
-                    locuspos2 = a[21]
-                    if locuspos1 in d_loci_seqs and locuspos2 in d_loci_seqs:
-                        seq1 = d_loci_seqs[locuspos1]
-                        seq2 = d_loci_seqs[locuspos2]
-                        if hybridize:
-                            if (locuspos1, locuspos2) in d_hybrids:
-                                dotbracket, pos, energy = d_hybrids[locuspos1, locuspos2]
-                            else:
-                                dotbracket, pos, energy = hybridize_with_intarna(seq1, seq2)
-                                d_hybrids[locuspos1, locuspos2] = dotbracket, pos, energy
-                    a.append(seq1 + "&" + seq2)
-                    a.append(dotbracket)
-                    a.append(pos)
-                    a.append(energy)
-                    fh_chimeras.write("\t".join(a) + "\n")
+        if tx_len1 == "NA" or tx_len2 == "NA":
+            if len(d_ref_lengths2) == 0:
+                tx_len1 = d_reflen1[transcriptid1]
+                tx_len2 = d_reflen1[transcriptid2]
             else:
-                l_best_singletons = update_best_hits(l_best_singletons, "singleton")
-                for b in l_best_singletons:
-                    fh_singletons.write("\t".join(b) + "\n")
+                try:
+                    tx_len1 = d_reflen1[transcriptid1]
+                    tx_len2 = d_reflen2[transcriptid2]
+                except KeyError:
+                    tx_len1 = d_reflen2[transcriptid1]
+                    tx_len2 = d_reflen1[transcriptid2]
+
+        chimera = [readid, transcriptid1, transcriptid2,
+                   geneid1, geneid2, name1, name2, region1, region2,
+                   str(tx_pos_start1), str(tx_pos_end1), tx_pos_strand1, str(tx_len1),
+                   str(tx_pos_start2), str(tx_pos_end2), tx_pos_strand2, str(tx_len2),
+                   ",".join([str(arm1_start), str(arm1_end), str(arm2_start), str(arm2_end), str(read_length)]),
+                   genomic_pos1, genomic_pos2,
+                   locuspos1, locuspos2,
+                   groupid1, groupid2,
+                   tpm1, tpm2,
+                   str(first_locus_score), str(second_locus_score), str(combined_score)]
+        chimera_found = True
+        l_best_chimeras.append(chimera)
+
+    # if there are no pairs, then it is a singleton
+    if not chimera_found:
+        # singleton read
+        for alignment in l_read_alignments:
+            [segmentid, transcriptid, locusid, groupid, tx_pos_start, tx_pos_end, tx_pos_strand,
+             cigar, genomic_pos, locuspos, locusshare, prob, tpm] = alignment.rstrip('\n').split('\t')
+
+            geneid, name, region, tx_len = extract_annotations(transcriptid,
+                                                               genomic_pos,
+                                                               d_regions,
+                                                               f_gtf)
+
+            locus_score = "{:.2f}".format(float(prob) * float(locusshare))
+            tpm = "{:.2f}".format(float(tpm) * float(locusshare))
+
+            arm_start, arm_end = chira_utilities.match_positions(cigar, tx_pos_strand == "-")
+            read_length = chira_utilities.query_length(cigar, tx_pos_strand == "-")
+
+            singleton = [readid, transcriptid, geneid, name, region,
+                         str(tx_pos_start), str(tx_pos_end), tx_pos_strand, str(tx_len),
+                         ",".join([str(arm_start), str(arm_end), str(read_length)]),
+                         genomic_pos,
+                         locuspos,
+                         groupid,
+                         tpm,
+                         locus_score]
+            l_best_singletons.append(singleton)
+
+    if len(l_best_chimeras) > 0:
+        l_best_chimeras = update_best_hits(l_best_chimeras, "chimera")
+        for a in l_best_chimeras:
+            if hybridize:
+                add_locus_to_set(a[20], l_loci_bed)
+                add_locus_to_set(a[21], l_loci_bed)
+            else:
+                a.append("NA&NA")
+                a.append("NA&NA")
+                a.append("NA")
+                a.append("NA")
+            fh_chimeras.write("\t".join(a) + "\n")
+    else:
+        l_best_singletons = update_best_hits(l_best_singletons, "singleton")
+        for b in l_best_singletons:
+            fh_singletons.write("\t".join(b) + "\n")
+
+
+def write_chimeras(chunk_start, chunk_end, total_read_count, d_ref_lengths1, d_ref_lengths2, hybridize,
+                   chimeric_overlap, f_gtf, outdir, crl_file, tpm_threshold, score_cutoff, n):
+    d_regions = defaultdict()
+    l_loci_bed = set()
+    file_chimeras = os.path.join(outdir, "chimeras." + n)
+    file_singletons = os.path.join(outdir, "singletons." + n)
+    # make bed entry for extracing locus sequence and hybridizing
+    with open(file_chimeras, "w") as fh_chimeras, open(file_singletons, "w") as fh_singletons, open(crl_file) as fh_crl:
+        prev_readid = None
+        l_readlines = []
+        read_count = 0
+        for line in fh_crl:
+            f = line.rstrip('\n').split('\t')
+            # last field after | represents the segment id, rest of the string before is read id
+            readid = '|'.join(f[0].split("|")[:-1])
+
+            if prev_readid != readid:
+                if chunk_start > read_count + 1:
+                    read_count += 1
+                    prev_readid = readid
+                    l_readlines = []
+                    continue
+                if read_count > chunk_end:
+                    break
+                l_read_alignments = filter_alignments(l_readlines, tpm_threshold, score_cutoff)
+                extract_and_write(prev_readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_ref_lengths2, f_gtf,
+                                  d_regions, chimeric_overlap, fh_chimeras, fh_singletons, hybridize)
+
+                read_count += 1
+                prev_readid = readid
+                l_readlines = []
+            l_readlines.append(line)
+
+        # write last read info
+        if read_count >= total_read_count:
+            l_read_alignments = filter_alignments(l_readlines, tpm_threshold, score_cutoff)
+            extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_ref_lengths2, f_gtf,
+                              d_regions, chimeric_overlap, fh_chimeras, fh_singletons, hybridize)
+
+    if hybridize:
+        # loci sequences are neeeded to hybridize
+        with open(os.path.join(outdir, "loci.bed.") + str(n), "w") as fh_bed:
+            for bed_line in l_loci_bed:
+                fh_bed.write(bed_line + "\n")
+
+
+def hybridize_and_write(outdir, intarna_mode, accessibility, noseed, n):
+    bed = os.path.join(outdir, "loci.bed.") + n
+    fa = os.path.join(outdir, "loci.fa.") + n
+
+    d_loci_seqs = defaultdict()
+    fa_seq = SeqIO.parse(open(os.path.join(outdir, "loci.fa.") + n), 'fasta')
+    for record in fa_seq:
+        # ids of the form ENSMUST00000185852:1602:1618:+(+). Strip last 3 characters
+        d_loci_seqs[record.id[:-3]] = str(record.seq).upper().replace('T', 'U')
+    os.remove(bed)
+    os.remove(fa)
+
+    d_hybrids = defaultdict()
+    file_chimeras = os.path.join(outdir, "chimeras." + n)
+    with open(file_chimeras) as fh_chimeras, open(os.path.join(outdir, "chimeras-r." + n), "w") as fh_out:
+        for line in fh_chimeras:
+            seq1 = seq2 = dotbracket = pos = energy = "NA"
+            a = line.rstrip("\n").split("\t")
+            locuspos1 = a[20]
+            locuspos2 = a[21]
+            if locuspos1 in d_loci_seqs and locuspos2 in d_loci_seqs:
+                seq1 = d_loci_seqs[locuspos1]
+                seq2 = d_loci_seqs[locuspos2]
+                if (locuspos1, locuspos2) in d_hybrids:
+                    dotbracket, pos, energy = d_hybrids[locuspos1, locuspos2]
+                else:
+                    dotbracket, pos, energy = hybridize_with_intarna(seq1, seq2, intarna_mode,
+                                                                     accessibility, noseed)
+                    d_hybrids[locuspos1, locuspos2] = dotbracket, pos, energy
+            a.append(seq1 + "&" + seq2)
+            a.append(dotbracket)
+            a.append(pos)
+            a.append(energy)
+            fh_out.write("\t".join(a) + "\n")
+    os.remove(file_chimeras)
 
 
 def parse_annotations(f_gtf):
@@ -407,21 +484,17 @@ def parse_annotations(f_gtf):
                     n_exon += 1
 
 
-def parse_loci_fasta(f_loci, d_loci_seq):
-    fa_seq = SeqIO.parse(open(f_loci), 'fasta')
-    for record in fa_seq:
-        # ids of the form ENSMUST00000185852:1602:1618:+(+). Strip last 3 characters
-        d_loci_seq[record.id[:-3]] = str(record.seq).upper().replace('T', 'U')
-    return
-
-
-def parse_counts_file(crl_file, tpm_cutoff, score_cutoff, f_ref, outdir):
+def parse_counts_file(crl_file, tpm_cutoff):
     d_group_tpm = defaultdict(float)
-
     l_loci_bed = set()
+    prev_readid = None
+    read_count = 0
     with open(crl_file, "r") as fh_crl_file:
         for line in fh_crl_file:
             f = line.rstrip('\n').split('\t')
+            readid = '|'.join(f[0].split("|")[:-1])
+            if readid != prev_readid:
+                read_count += 1
             groupid = f[3]
             group_tpm = f[12]
             d_group_tpm[groupid] = float(group_tpm)
@@ -429,50 +502,75 @@ def parse_counts_file(crl_file, tpm_cutoff, score_cutoff, f_ref, outdir):
             locus_bed_entry = "\t".join([":".join(b[0:-3]), b[-3], b[-2], f[9], "1", b[-1]])
             if locus_bed_entry not in l_loci_bed:
                 l_loci_bed.add(locus_bed_entry)
-    # loci sequences are neeeded to hybridize
-    with open(os.path.join(outdir, "loci.bed"), "w") as fh_bed:
-        for bed in l_loci_bed:
-            fh_bed.write(bed + "\n")
-    process = subprocess.Popen(['fastaFromBed', '-s', '-nameOnly',
-                                '-fi', f_ref,
-                                '-bed', os.path.join(outdir, "loci.bed"),
-                                '-fo', os.path.join(outdir, "loci.fa")],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT,
-                               universal_newlines=True)
-    # print unique warning messages
-    for l in sorted(set(process.stdout.readlines())):
-        print(l, end="")
+            prev_readid = readid
 
     uniq_tpms = sorted(list(set(d_group_tpm.values())))
     tpm_threshold = uniq_tpms[int(tpm_cutoff * len(uniq_tpms))]
 
-    d_read_aligns = defaultdict(list)
-    with open(crl_file, "r") as fh_crl_file:
-        for line in fh_crl_file:
-            f = line.rstrip('\n').split('\t')
-            # last field after | represents the segment id, rest of the string before is read id
-            readid = '|'.join(f[0].split("|")[:-1])
-            group_tpm = f[12]
-            prob = f[10]
-            locusshare = f[11]
-            if float(group_tpm) < tpm_threshold:
-                continue
-            locus_score = float(prob) * float(locusshare)
-            if locus_score < score_cutoff:
-                continue
-            d_read_aligns[readid].append(line)
-    return d_read_aligns
+    return read_count, tpm_threshold
 
 
-def merge_files(outfile, header, r):
-    with open(outfile, 'w') as fh_out:
-        fh_out.write(header + "\n")
-        for i in range(r):
-            with open(outfile + "." + str(i)) as infile:
-                for line in infile:
-                    fh_out.write(line)
-            os.remove(outfile + "." + str(i))
+def merge_files(inprefix, outfile, header, r):
+    temp_files = ""
+    for i in range(r):
+        temp_files += " " + inprefix + "." + str(i)
+    os.system("cat " + temp_files +
+              " | sort -u | sort -k 21,22 | sed '1s/^/" + header + "\\n/' > " +
+              outfile)
+
+    for i in range(r):
+        os.remove(inprefix + "." + str(i))
+
+
+def write_interaction(fh_out, interaction, d_interactions, common_info):
+    fh_out.write("\t".join([interaction,
+                            str(len(set(d_interactions["readid"]))),
+                            common_info,
+                            ";".join(sorted(set(d_interactions["region1"]))),
+                            ";".join(sorted(set(d_interactions["region2"]))),
+                            ";".join(sorted(set(d_interactions["ref1"]))),
+                            ";".join(sorted(set(d_interactions["ref2"])))]) + "\n")
+
+
+def write_interaction_summary(outdir):
+    d_interactions = defaultdict(list)
+    common_info = ""
+    prev_interaction = None
+    with open(os.path.join(outdir, "chimeras")) as fh_in, open(os.path.join(outdir, "interactions"), "w") as fh_out:
+        next(fh_in)
+        for line in fh_in:
+            f = line.rstrip("\n").split("\t")
+            locus1 = f[20]
+            locus2 = f[21]
+            if locus1 + "\t" + locus2 != prev_interaction and prev_interaction is not None:
+                write_interaction(fh_out, prev_interaction, d_interactions, common_info)
+                d_interactions.clear()
+
+            readid = f[0]
+            ref1 = f[1]
+            ref2 = f[2]
+            region1 = f[7]
+            region2 = f[8]
+            tpm1 = f[24]
+            tpm2 = f[25]
+            score1 = f[26]
+            score2 = f[27]
+            tpm = str(float(tpm1) + float(tpm2))
+            score = str(float(score1) + float(score2))
+            [sequence1, sequence2] = f[29].split("&")
+            hybrid = f[30]
+            hybrid_pos = f[31]
+            mfe = f[32]
+            d_interactions["readid"].append(readid)
+            d_interactions["ref1"].append(ref1)
+            d_interactions["ref2"].append(ref2)
+            d_interactions["region1"].append(region1)
+            d_interactions["region2"].append(region2)
+            common_info = "\t".join([sequence1, sequence2, hybrid, hybrid_pos, mfe,
+                                     tpm1, tpm2, tpm, score1, score2, score])
+            prev_interaction = locus1 + "\t" + locus2
+
+        write_interaction(fh_out, prev_interaction, d_interactions, common_info)
 
 
 if __name__ == "__main__":
@@ -509,6 +607,15 @@ if __name__ == "__main__":
     parser.add_argument("-r", '--hybridize', action='store_true', dest='hybridize',
                         help="Hybridize the predicted chimeras")
 
+    parser.add_argument("-ns", '--noSeed', action='store_true', dest='no_seed',
+                        help="Do not enforce seed interactions")
+
+    parser.add_argument("-a", '--accessibility', type=str, choices=["C", "N"], default='N', required=False,
+                        dest='accessibility', metavar='', help='Accessibility computation: C (compute) or N (not)')
+
+    parser.add_argument("-m", '--intarna_mode', type=str, choices=["H", "M", "S"], default='H', required=False,
+                        dest='intarna_mode', metavar='', help='IntaRNA mode to use: H (heuristic) or M (exact) or S (seed-only)')
+
     parser.add_argument('-f1', '--ref_fasta1', action='store', dest='ref_fasta1', required=True,
                         metavar='', help='First prioroty fasta file')
 
@@ -518,7 +625,10 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--ref', action='store', dest='f_ref', required=False,
                         metavar='', help='Reference fasta file')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.2.0')
+    parser.add_argument("-s", '--summerize', action='store_true', dest='summerize',
+                        help="Summerize interactions at loci level")
+
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.0')
 
     args = parser.parse_args()
 
@@ -531,11 +641,13 @@ if __name__ == "__main__":
     print('Score cutoff                         : ' + str(args.score_cutoff))
     print('Chimeric overlap                     : ' + str(args.chimeric_overlap))
     print('Hybridize chimeric loci?             : ' + str(args.hybridize))
+    print('Do not enforce seed interaction      : ' + str(args.no_seed))
     print('1st priority reference fasta file    : ' + args.ref_fasta1)
     if args.ref_fasta2:
         print('2nd priority reference fasta file    : ' + args.ref_fasta2)
     if args.f_ref:
         print('Reference genomic fasta file         : ' + args.f_ref)
+    print('Summerize interactions at loci level : ' + str(args.summerize))
     print("===================================================================")
 
     if args.hybridize and args.f_gtf and not args.f_ref:
@@ -545,66 +657,98 @@ if __name__ == "__main__":
 
     if args.f_gtf:
         # Parse the annotations and save them to dictionaries. Additionally write exons bed files to the outputdir
-        chira_utilities.print_w_time("START: Parsing the annotation file")
+        print("Parsing the annotation file")
         parse_annotations(args.f_gtf)
-        chira_utilities.print_w_time("END: Parsing the annotation file")
+
     d_reflen1 = defaultdict()
     d_reflen2 = defaultdict()
+    # extract lengths of references from the reference fasta files, keys are reference ids used to find chimeric reads
     chira_utilities.extract_reflengths(args.ref_fasta1, d_reflen1)
     if args.ref_fasta2:
         chira_utilities.extract_reflengths(args.ref_fasta2, d_reflen2)
 
-    f_reference = "NA"
-    if args.f_ref:
-        f_reference = args.f_ref
-    else:
-        f_reference = os.path.join(args.outdir, 'merged_reference.fa')
-        l_ref = [args.ref_fasta1]
-        if args.ref_fasta2:
-            l_ref.append(args.ref_fasta2)
-        with open(f_reference, 'w') as fh_out_ref:
-            for fname in l_ref:
-                with open(fname) as infile:
-                    for lin in infile:
-                        fh_out_ref.write(lin)
-    chira_utilities.print_w_time("START: Parsing CRLs file")
-    d_read_alignments = parse_counts_file(args.crl_file, args.tpm_cutoff, args.score_cutoff, f_reference, args.outdir)
-    chira_utilities.print_w_time("END: Parsing CRLs file")
-    # remove the temporary reference file
-    if not args.f_ref:
-        if os.path.exists(f_reference):
-            os.remove(f_reference)
-        if os.path.exists(f_reference + ".fai"):
-            os.remove(f_reference + ".fai")
+    print("Parsing CRLs file")
+    no_of_reads, tpm_cutoff_value = parse_counts_file(args.crl_file, args.tpm_cutoff)
+    print("Done")
 
-    d_loci_sequences = defaultdict()
-    parse_loci_fasta(os.path.join(args.outdir, "loci.fa"), d_loci_sequences)
+    print(str(datetime.datetime.now()), " START: multiprocessing")
 
-    chira_utilities.print_w_time("START: multiprocessing")
-    chimeras_file = os.path.join(args.outdir, "chimeras")
-    singletons_file = os.path.join(args.outdir, "singletons")
     jobs = []
+    # write chimeric reads
     for k in range(args.processes):
-        s = k * math.ceil(len(d_read_alignments) / args.processes)
-        e = min(s + math.ceil(len(d_read_alignments) / args.processes), len(d_read_alignments))
-        readids = []
-        l_locus = []
-        for read in list(d_read_alignments)[s:e]:
-            l_locus.append(d_read_alignments[read])
-            readids.append(read)
-        j = Process(target=write_chimeras, args=(readids, l_locus, d_loci_sequences, d_reflen1, d_reflen2,
-                                                 args.chimeric_overlap, args.hybridize, args.f_gtf,
-                                                 chimeras_file,  singletons_file, str(k)))
+        s = k * math.ceil(no_of_reads / args.processes)
+        e = min(s + math.floor(no_of_reads / args.processes), no_of_reads)
+        print(k, s, e, no_of_reads)
+        j = Process(target=write_chimeras, args=(s, e, no_of_reads, d_reflen1, d_reflen2, args.hybridize,
+                                                 args.chimeric_overlap, args.f_gtf, args.outdir,
+                                                 args.crl_file, tpm_cutoff_value, args.score_cutoff, str(k)))
         jobs.append(j)
-    d_read_alignments.clear()
+
     for j in jobs:
         j.start()
     for j in jobs:
         j.join()
-    chira_utilities.print_w_time("END: multiprocessing")
+
+    # file name prefixes
+    chimeras_prefix = chimeras_file = os.path.join(args.outdir, "chimeras")
+    singletons_prefix = os.path.join(args.outdir, "singletons")
+
+    # if hybridization required
+    if args.hybridize:
+        chimeras_prefix = os.path.join(args.outdir, "chimeras-r")
+        f_reference = "NA"
+        if args.f_ref:
+            f_reference = args.f_ref
+        else:
+            f_reference = os.path.join(args.outdir, 'merged_reference.fa')
+            l_ref = [args.ref_fasta1]
+            if args.ref_fasta2:
+                l_ref.append(args.ref_fasta2)
+            with open(f_reference, 'w') as fh_out_ref:
+                for fname in l_ref:
+                    with open(fname) as infile:
+                        for lin in infile:
+                            fh_out_ref.write(lin)
+
+        for k in range(args.processes):
+            # before starting hybridization, extract fasta sequences
+            # do not run them in parallel as they need a lot memory
+            bed = os.path.join(args.outdir, "loci.bed.") + str(k)
+            fa = os.path.join(args.outdir, "loci.fa.") + str(k)
+            # loci.bed should exist already, now extract loci sequences
+            process = subprocess.Popen(['fastaFromBed', '-s', '-nameOnly',
+                                        '-fi', f_reference,
+                                        '-bed', bed,
+                                        '-fo', fa],
+                                       stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT,
+                                       universal_newlines=True)
+            for l in sorted(set(process.stdout.readlines())):
+                print(l, end="")
+
+        jobs = []
+        # hybridize chimeric reads
+        for k in range(args.processes):
+            noseed_param = ""
+            if args.no_seed:
+                noseed_param = "--noSeed"
+            j = Process(target=hybridize_and_write, args=(args.outdir, args.intarna_mode, args.accessibility, noseed_param, str(k)))
+            jobs.append(j)
+
+        for j in jobs:
+            j.start()
+        for j in jobs:
+            j.join()
+
+        # remove the temporary reference file
+        if not args.f_ref:
+            if os.path.exists(f_reference):
+                os.remove(f_reference)
+            if os.path.exists(f_reference + ".fai"):
+                os.remove(f_reference + ".fai")
+
     # cleanup intermediate files
     # header fields
-    chira_utilities.print_w_time("START: Merging files")
     header_chimeras = "\t".join(["tagid",
                                  "txid1",
                                  "txid2",
@@ -638,7 +782,7 @@ if __name__ == "__main__":
                                  "hybrid",
                                  "hybrid_pos",
                                  "mfe"])
-    merge_files(chimeras_file, header_chimeras, args.processes)
+    merge_files(chimeras_prefix, chimeras_file, header_chimeras, args.processes)
     header_singletons = "\t".join(["tagid",
                                    "txid",
                                    "geneid",
@@ -653,8 +797,9 @@ if __name__ == "__main__":
                                    "locus",
                                    "groupid",
                                    "tpm",
-                                   "score",
-                                   "score",
-                                   "sequences"])
-    merge_files(singletons_file, header_singletons, args.processes)
-    chira_utilities.print_w_time("END: Merging files")
+                                   "score"])
+    merge_files(singletons_prefix, singletons_prefix, header_singletons, args.processes)
+    print(str(datetime.datetime.now()), " END: multiprocessing")
+    if args.summerize:
+        write_interaction_summary(args.outdir)
+

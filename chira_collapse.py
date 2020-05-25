@@ -15,7 +15,7 @@ if __name__ == "__main__":
                         help='Output fasta file')
     parser.add_argument("-u", '--umi_len', action='store', type=int, default=0, help="Length of the UMI, if present."
                         "It is trimmed from the 5' end of each read and appended to the tag id")
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.2.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.0')
 
     args = parser.parse_args()
     print('Input FASTQ          : ' + args.fastq)
