@@ -628,7 +628,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", '--summerize', action='store_true', dest='summerize',
                         help="Summerize interactions at loci level")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.1')
 
     args = parser.parse_args()
 
