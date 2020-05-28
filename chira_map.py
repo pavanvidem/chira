@@ -241,12 +241,12 @@ if __name__ == "__main__":
                              rc = map to reverse compliment of transcript strand;
                              both = try to map on both strnads''')
 
-    parser.add_argument("-l1", '--seed_length1', action='store', type=int, default=12, metavar='',
+    parser.add_argument("-l1", '--seed_length1', action='store', type=int, default=14, metavar='',
                         dest='seed_length1',
                         help='''Seed length for 1st mapping iteration.
                                 bwa-mem parameter "-k"''')
 
-    parser.add_argument("-l2", '--seed_length2', action='store', type=int, default=6, metavar='',
+    parser.add_argument("-l2", '--seed_length2', action='store', type=int, default=12, metavar='',
                         dest='seed_length2',
                         help='''Seed length for 2nd mapping iteration.
                                 bwa-mem parameter "-k"''')
@@ -256,7 +256,7 @@ if __name__ == "__main__":
                         help='''Minimum alignment score in 1st mapping iteration.
                                 bwa-mem parameter "-T" and clan_search parameter "-l"''')
 
-    parser.add_argument("-s2", '--align_score2', action='store', type=int, default=10, metavar='',
+    parser.add_argument("-s2", '--align_score2', action='store', type=int, default=16, metavar='',
                         dest='align_score2',
                         help='''Minimum alignment score in 2nd mapping iteration.
                                 It must be smaller than --align_score1 parameter.
@@ -274,7 +274,7 @@ if __name__ == "__main__":
                         dest='match2',
                         help='Matching score for 2nd mapping iteration.')
 
-    parser.add_argument("-mm2", '--mismatch2', action='store', type=int, default=7, metavar='',
+    parser.add_argument("-mm2", '--mismatch2', action='store', type=int, default=6, metavar='',
                         dest='mismatch2',
                         help='Mismatch penalty for 2nd mapping iteration.')
 
@@ -306,7 +306,7 @@ if __name__ == "__main__":
                         dest='chimeric_overlap',
                         help='Maximum number of bases allowed between the chimeric segments of a read')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.1')
 
     args = parser.parse_args()
     print('Query fasta                          : ' + args.fasta)

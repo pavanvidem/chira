@@ -486,6 +486,7 @@ def transcript_to_genomic_pos(transcriptomic_bed, genomic_bed, f_geneexonbed, f_
                         x = splice_align.split("\t")
                         if int(x[2]) - int(x[1]) > longest_splice:
                             longest_splice = int(x[2]) - int(x[1])
+                            longest_splice_align = splice_align
                     fh_wojunctions.write(longest_splice_align)
                 l_withjunctions.clear()
 
@@ -576,7 +577,7 @@ if __name__ == "__main__":
                         dest='min_locus_size',
                         help='Minimum number of alignments required per mered locus')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.1')
 
     args = parser.parse_args()
 
