@@ -220,8 +220,6 @@ def stitch_alignments(alignments_by_ref, read_alignments, prev_readid):
 
                             prev_reference = ",".join([refid[0], str(prev_ref_pos[0]), str(prev_ref_pos[1]), refid[1]])
                             curr_reference = ",".join([refid[0], str(curr_ref_pos[0]), str(curr_ref_pos[1]), refid[1]])
-                            # print(alignments_by_ref[refid][prev_ref_pos], prev_reference, prev_read_pos, l_merged_readpos)
-                            # print(curr_read_pos, curr_reference)
                             if alignments_by_ref[refid][prev_ref_pos]:
                                 l_delete.append((alignments_by_ref[refid][prev_ref_pos][0], prev_reference))
                             l_delete.append((curr_read_pos, curr_reference))
@@ -267,6 +265,33 @@ def reads_to_segments(bed, outdir, segment_overlap_fraction, chimeric_overlap, r
         write_segments(prev_readid, filtered_alignments, segment_overlap_fraction, fh_out)
 
 
+def merge_overlapping_intervals(d_desc, chrom, alignment_overlap_fraction):
+    startpos_sorted = sorted(d_desc[chrom], key=lambda tup: tup[0])
+    t_merged = []
+    d_mergeddesc = defaultdict(list)
+    for currentpos in startpos_sorted:
+        if not t_merged:
+            t_merged.append(currentpos)
+            d_mergeddesc[currentpos[0]].extend(d_desc[chrom][currentpos])
+        else:
+            prevpos = t_merged[-1]
+            if currentpos[0] <= prevpos[1]:
+                overlap_len = min(currentpos[1], prevpos[1]) - currentpos[0] + 1
+                if overlap_len / float(currentpos[1] - currentpos[0] + 1) >= alignment_overlap_fraction \
+                        or overlap_len / float(prevpos[1] - prevpos[0] + 1) >= alignment_overlap_fraction:
+                    end = max(prevpos[1], currentpos[1])
+                    t_merged[-1] = (prevpos[0], end)  # replace by merged interval
+                    d_mergeddesc[prevpos[0]].extend(d_desc[chrom][currentpos])
+                else:
+                    t_merged.append(currentpos)
+                    d_mergeddesc[currentpos[0]].extend(d_desc[chrom][currentpos])
+                    continue
+            else:
+                t_merged.append(currentpos)
+                d_mergeddesc[currentpos[0]].extend(d_desc[chrom][currentpos])
+    return t_merged, d_mergeddesc
+
+
 def merge_loci_overlap(outdir, alignment_overlap_fraction, min_locus_size):
     f_bed = os.path.join(outdir, "segments.bed")
     # Merge the aligned loci
@@ -282,29 +307,7 @@ def merge_loci_overlap(outdir, alignment_overlap_fraction, min_locus_size):
     merged_bed = os.path.join(outdir, "merged.bed")
     with open(merged_bed, "w") as fh_out:
         for chrom in sorted(d_desc.keys()):
-            startpos_sorted = sorted(d_desc[chrom], key=lambda tup: tup[0])
-            t_merged = []
-            d_mergeddesc = defaultdict(list)
-            for currentpos in startpos_sorted:
-                if not t_merged:
-                    t_merged.append(currentpos)
-                    d_mergeddesc[currentpos[0]].extend(d_desc[chrom][currentpos])
-                else:
-                    prevpos = t_merged[-1]
-                    if currentpos[0] <= prevpos[1]:
-                        overlap_len = min(currentpos[1], prevpos[1]) - currentpos[0] + 1
-                        if overlap_len / float(currentpos[1] - currentpos[0] + 1) >= alignment_overlap_fraction \
-                                or overlap_len / float(prevpos[1] - prevpos[0] + 1) >= alignment_overlap_fraction:
-                            end = max(prevpos[1], currentpos[1])
-                            t_merged[-1] = (prevpos[0], end)  # replace by merged interval
-                            d_mergeddesc[prevpos[0]].extend(d_desc[chrom][currentpos])
-                        else:
-                            t_merged.append(currentpos)
-                            d_mergeddesc[currentpos[0]].extend(d_desc[chrom][currentpos])
-                            continue
-                    else:
-                        t_merged.append(currentpos)
-                        d_mergeddesc[currentpos[0]].extend(d_desc[chrom][currentpos])
+            t_merged, d_mergeddesc = merge_overlapping_intervals(d_desc, chrom, alignment_overlap_fraction)
             del d_desc[chrom]
             for pos in t_merged:
                 d_longest_alignments = defaultdict(int)
@@ -322,8 +325,6 @@ def merge_loci_overlap(outdir, alignment_overlap_fraction, min_locus_size):
                     readid = '|'.join(segmentid.split('|')[:-1])
                     if int(end) - int(start) >= d_longest_alignments[readid + "\t" + transcriptid]:
                         l_alignments.append(alignment)
-                    # else:
-                    #     print(alignment, int(end) - int(start), d_longest_alignments[readid + "\t" + transcriptid])
                 [chromid, strand] = chrom.split("\t")
                 # ignore locus if has not enough alignments
                 if len(l_alignments) < min_locus_size:
@@ -333,7 +334,16 @@ def merge_loci_overlap(outdir, alignment_overlap_fraction, min_locus_size):
     return
 
 
-def merge_loci_blockbuster(outdir, distance, min_cluster_height, min_block_height, scale):
+def write_merged_pos(d_mergeddesc, prev_chrom_strand, fh_out):
+    for merged_pos in d_mergeddesc.keys():
+        l_alignments = d_mergeddesc[merged_pos]
+        [chromid, strand] = prev_chrom_strand.split("\t")
+        fh_out.write(
+            "\t".join([chromid, str(merged_pos[0]), str(merged_pos[1]), strand, ";".join(sorted(l_alignments))]) + "\n")
+    d_mergeddesc.clear()
+
+
+def merge_loci_blockbuster(outdir, distance, min_cluster_height, min_block_height, scale, alignment_overlap_fraction):
     os.system("sort -k 1,1 -k 6,6 -k 2n,2 -k 3n,3 " + os.path.join(outdir, "segments.bed") + " > " +
               os.path.join(outdir, "segments.sorted.bed"))
     os.system("blockbuster.x " +
@@ -341,25 +351,42 @@ def merge_loci_blockbuster(outdir, distance, min_cluster_height, min_block_heigh
               " -minClusterHeight " + str(min_cluster_height) +
               " -minBlockHeight " + str(min_block_height) +
               " -scale " + str(scale) +
-              " -print 2 " +
+              " -print 1 " +
               os.path.join(outdir, "segments.sorted.bed") + " > " +
               os.path.join(outdir, "segments.blockbuster"))
 
-    bed_entry = None
-    merged_bed = os.path.join(outdir, "merged.bed")
+    d_desc = defaultdict(lambda: defaultdict(list))
+    with open(os.path.join(outdir, "segments.blockbuster")) as fh_blockbuster:
+        for line in fh_blockbuster:
+            f = line.rstrip('\n').split('\t')
+            if line.startswith('>'):
+                continue
+            d_desc[f[1] + "\t" + f[4]][(int(f[2]), int(f[3]))].append(f[0])
 
-    with open(merged_bed, "w") as fh_out:
-        with open(os.path.join(outdir, "segments.blockbuster")) as fh_blockbuster:
-            for line in fh_blockbuster:
-                if line.startswith('>'):
-                    if bed_entry:
-                        fh_out.write(bed_entry.rstrip(";") + "\n")
-                    f = line.rstrip('\n').split('\t')
-                    bed_entry = '\t'.join([f[1], f[2], f[3], f[4]]) + "\t"
-                else:
-                    bed_entry += line.split("\t")[3] + ";"
-        # last line
-        fh_out.write(bed_entry.rstrip(";") + "\n")
+    d_merged = defaultdict()
+    for chrom in sorted(d_desc.keys()):
+        t_merged, d_mergeddesc = merge_overlapping_intervals(d_desc, chrom, alignment_overlap_fraction)
+        d_merged[chrom] = t_merged
+
+    merged_bed = os.path.join(outdir, "merged.bed")
+    d_mergeddesc = defaultdict(list)
+    prev_chrom_strand = None
+    with open(merged_bed, "w") as fh_out, open(os.path.join(outdir, "segments.sorted.bed")) as fh_in:
+        for line in fh_in:
+            f = line.rstrip('\n').split('\t')
+            chrom_strand = f[0] + "\t" + f[5]
+            start = f[1]
+            end = f[2]
+            if prev_chrom_strand != chrom_strand:
+                write_merged_pos(d_mergeddesc, prev_chrom_strand, fh_out)
+            for merged_pos in d_merged[chrom_strand]:
+                # within the merged psotion range
+                if int(start) >= merged_pos[0] and int(end) <= merged_pos[1]:
+                    d_mergeddesc[merged_pos].append(f[3])
+                    break
+            prev_chrom_strand = chrom_strand
+        # write last chromosome positions
+        write_merged_pos(d_mergeddesc, prev_chrom_strand, fh_out)
     os.remove(os.path.join(outdir, "segments.blockbuster"))
 
     return
@@ -438,7 +465,6 @@ def transcript_to_genomic_pos(transcriptomic_bed, genomic_bed, f_geneexonbed, f_
     print("Read in genomic exon features .. ")
     fh_genomic_exon_bed = open(f_geneexonbed, "r")
     for line in fh_genomic_exon_bed:
-        # chrName, s, e, exid, pol = line.rstrip('\n').split('\t')[0,1,2,3,5]
         f = line.rstrip('\n').split('\t')
         chrname = f[0]
         s = int(f[1])
@@ -577,13 +603,14 @@ if __name__ == "__main__":
                         dest='min_locus_size',
                         help='Minimum number of alignments required per mered locus')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.1')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.2')
 
     args = parser.parse_args()
 
     print('Input BED file                       : ' + args.bed)
     print('Output directory                     : ' + args.outdir)
     print('Segment overlap fraction             : ' + str(args.segment_overlap_fraction))
+    print('Alignment/Block overlap fraction     : ' + str(args.alignment_overlap_fraction))
     if args.gtf:
         print('Annotation file                      : ' + args.gtf)
     if args.block_based:
@@ -594,7 +621,6 @@ if __name__ == "__main__":
         print('Blockbuster scale                    : ' + str(args.scale))
     else:
         print('Merge method                         : overlap based')
-        print('Alignment overlap fraction           : ' + str(args.alignment_overlap_fraction))
         print('Minimum locus size                   : ' + str(args.min_locus_size))
     print('Minimum alignment length as % of longest : ' + str(args.length_threshold))
     print('Chimeric overlap                     : ' + str(args.chimeric_overlap))
@@ -632,7 +658,8 @@ if __name__ == "__main__":
                             os.path.join(args.outdir, "segments.bed")]))
     if args.block_based:
         chira_utilities.print_w_time("START: blockcuster based merging")
-        merge_loci_blockbuster(args.outdir, args.distance, args.min_cluster_height, args.min_block_height, args.scale)
+        merge_loci_blockbuster(args.outdir, args.distance, args.min_cluster_height, args.min_block_height,
+                               args.scale, args.alignment_overlap_fraction)
         chira_utilities.print_w_time("END: blockcuster based merging")
     else:
         chira_utilities.print_w_time("START: overlap based merging")
