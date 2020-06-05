@@ -241,12 +241,12 @@ if __name__ == "__main__":
                              rc = map to reverse compliment of transcript strand;
                              both = try to map on both strnads''')
 
-    parser.add_argument("-l1", '--seed_length1', action='store', type=int, default=14, metavar='',
+    parser.add_argument("-l1", '--seed_length1', action='store', type=int, default=12, metavar='',
                         dest='seed_length1',
                         help='''Seed length for 1st mapping iteration.
                                 bwa-mem parameter "-k"''')
 
-    parser.add_argument("-l2", '--seed_length2', action='store', type=int, default=12, metavar='',
+    parser.add_argument("-l2", '--seed_length2', action='store', type=int, default=16, metavar='',
                         dest='seed_length2',
                         help='''Seed length for 2nd mapping iteration.
                                 bwa-mem parameter "-k"''')
@@ -297,7 +297,7 @@ if __name__ == "__main__":
     parser.add_argument("-h1", '--nhits1', action='store', type=int, default=50, metavar='',
                         dest='nhits1',
                         help='Number of allowed multi hits per read')
-
+output
     parser.add_argument("-h2", '--nhits2', action='store', type=int, default=100, metavar='',
                         dest='nhits2',
                         help='Number of allowed multi hits per read in 2nd iteration')
@@ -306,7 +306,7 @@ if __name__ == "__main__":
                         dest='chimeric_overlap',
                         help='Maximum number of bases allowed between the chimeric segments of a read')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.1')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.2')
 
     args = parser.parse_args()
     print('Query fasta                          : ' + args.fasta)

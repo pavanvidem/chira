@@ -515,7 +515,7 @@ def merge_files(inprefix, outfile, header, r):
     for i in range(r):
         temp_files += " " + inprefix + "." + str(i)
     os.system("cat " + temp_files +
-              " | sort -u | sort -k 21,22 | sed '1s/^/" + header + "\\n/' > " +
+              " | sort -u | sed '1s/^/" + header + "\\n/' > " +
               outfile)
 
     for i in range(r):
@@ -533,19 +533,15 @@ def write_interaction(fh_out, interaction, d_interactions, common_info):
 
 
 def write_interaction_summary(outdir):
-    d_interactions = defaultdict(list)
+    d_interactions = defaultdict(lambda: defaultdict(list))
     common_info = ""
     prev_interaction = None
-    with open(os.path.join(outdir, "chimeras")) as fh_in, open(os.path.join(outdir, "interactions"), "w") as fh_out:
+    with open(os.path.join(outdir, "chimeras")) as fh_in:
         next(fh_in)
         for line in fh_in:
             f = line.rstrip("\n").split("\t")
             locus1 = f[20]
             locus2 = f[21]
-            if locus1 + "\t" + locus2 != prev_interaction and prev_interaction is not None:
-                write_interaction(fh_out, prev_interaction, d_interactions, common_info)
-                d_interactions.clear()
-
             readid = f[0]
             ref1 = f[1]
             ref2 = f[2]
@@ -561,17 +557,39 @@ def write_interaction_summary(outdir):
             hybrid = f[30]
             hybrid_pos = f[31]
             mfe = f[32]
-            d_interactions["readid"].append(readid)
-            d_interactions["ref1"].append(ref1)
-            d_interactions["ref2"].append(ref2)
-            d_interactions["region1"].append(region1)
-            d_interactions["region2"].append(region2)
+            interaction = locus1 + "\t" + locus2
+            if locus2 + "\t" + locus1 in d_interactions:
+                interaction = locus2 + "\t" + locus1
+                ref2 = f[1]
+                ref1 = f[2]
+                region2 = f[7]
+                region1 = f[8]
+                tpm2 = f[24]
+                tpm1 = f[25]
+                score2 = f[26]
+                score1 = f[27]
+                [sequence2, sequence1] = f[29].split("&")
+            d_interactions[interaction]["readid"].append(readid)
+            d_interactions[interaction]["ref1"].append(ref1)
+            d_interactions[interaction]["ref2"].append(ref2)
+            d_interactions[interaction]["region1"].append(region1)
+            d_interactions[interaction]["region2"].append(region2)
             common_info = "\t".join([sequence1, sequence2, hybrid, hybrid_pos, mfe,
                                      tpm1, tpm2, tpm, score1, score2, score])
-            prev_interaction = locus1 + "\t" + locus2
+            d_interactions[interaction]["common"] = [common_info]
 
-        write_interaction(fh_out, prev_interaction, d_interactions, common_info)
+    with open(os.path.join(outdir, "interactions.temp"), "w") as fh_out:
+        for interaction in d_interactions.keys():
+            fh_out.write("\t".join([interaction,
+                                    str(len(set(d_interactions[interaction]["readid"]))),
+                                    d_interactions[interaction]["common"][0],
+                                    ";".join(sorted(set(d_interactions[interaction]["region1"]))),
+                                    ";".join(sorted(set(d_interactions[interaction]["region2"]))),
+                                    ";".join(sorted(set(d_interactions[interaction]["ref1"]))),
+                                    ";".join(sorted(set(d_interactions[interaction]["ref2"])))]) + "\n")
 
+    os.system("sort -k 3nr,3 " + os.path.join(outdir, "interactions.temp") + " > " + os.path.join(outdir, "interactions"))
+    os.remove(os.path.join(outdir, "interactions.temp"))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Chimeric Read Annotator: extract chimeras',
@@ -628,7 +646,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", '--summerize', action='store_true', dest='summerize',
                         help="Summerize interactions at loci level")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.1')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.2')
 
     args = parser.parse_args()
 
