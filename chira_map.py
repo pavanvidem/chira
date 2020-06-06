@@ -297,7 +297,7 @@ if __name__ == "__main__":
     parser.add_argument("-h1", '--nhits1', action='store', type=int, default=50, metavar='',
                         dest='nhits1',
                         help='Number of allowed multi hits per read')
-output
+
     parser.add_argument("-h2", '--nhits2', action='store', type=int, default=100, metavar='',
                         dest='nhits2',
                         help='Number of allowed multi hits per read in 2nd iteration')
