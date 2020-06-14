@@ -187,12 +187,10 @@ def stitch_alignments(alignments_by_ref, read_alignments, prev_readid):
     for refid in alignments_by_ref.keys():
         l_merged_refpos = []
         l_merged_readpos = []
-        # d_readpos.sort(key=lambda interval: interval[0])
         if len(alignments_by_ref[refid]) < 2:
             continue
         if len(alignments_by_ref[refid]) != len(set(tuple(l) for l in alignments_by_ref[refid].values())):
             continue
-        # print(prev_readid, set(tuple(l) for l in alignments_by_ref[refid].values()))
         l_delete = []
         l_add = defaultdict()
         for curr_ref_pos in sorted(alignments_by_ref[refid].keys()):
@@ -257,8 +255,6 @@ def reads_to_segments(bed, outdir, segment_overlap_fraction, chimeric_overlap, r
             referencepos = ",".join([desc[-5], desc[-4], desc[-3], desc[-2]])
             match_start, match_end = chira_utilities.match_positions(cigar, strand == "-")
             prev_read_alignments[match_start, match_end, strand][referencepos] = line
-            # if (match_start, match_end, strand) not in prev_alignments_by_ref[desc[-5], desc[-2]]:
-            #     prev_alignments_by_ref[desc[-5], desc[-2]][int(desc[-4]), int(desc[-3])].append((match_start, match_end, strand))
             prev_readid = readid
         # process last read alignments
         filtered_alignments = filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, chimeric_only, lt)
@@ -379,11 +375,12 @@ def merge_loci_blockbuster(outdir, distance, min_cluster_height, min_block_heigh
             end = f[2]
             if prev_chrom_strand != chrom_strand:
                 write_merged_pos(d_mergeddesc, prev_chrom_strand, fh_out)
-            for merged_pos in d_merged[chrom_strand]:
-                # within the merged psotion range
-                if int(start) >= merged_pos[0] and int(end) <= merged_pos[1]:
-                    d_mergeddesc[merged_pos].append(f[3])
-                    break
+            if chrom_strand in d_merged:
+                for merged_pos in d_merged[chrom_strand]:
+                    # within the merged psotion range
+                    if int(start) >= merged_pos[0] and int(end) <= merged_pos[1]:
+                        d_mergeddesc[merged_pos].append(f[3])
+                        break
             prev_chrom_strand = chrom_strand
         # write last chromosome positions
         write_merged_pos(d_mergeddesc, prev_chrom_strand, fh_out)
@@ -603,7 +600,7 @@ if __name__ == "__main__":
                         dest='min_locus_size',
                         help='Minimum number of alignments required per mered locus')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.3')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.4')
 
     args = parser.parse_args()
 

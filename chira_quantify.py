@@ -175,11 +175,9 @@ def build_crls(build_crls_too, bed, merged_bed, crl_file, crl_share_cutoff, min_
 
 def em(d_read_crl_shares, d_crl_counts, l_multimap_readids, em_threshold, i=1):
     print("iteration: " + str(i))
-    d_crl_counts_new = {}
+    d_crl_counts_new = defaultdict(int)
 
     for readid in l_multimap_readids:
-        if len(d_read_crl_shares[readid]) == 1:
-            continue
         total_crl_count = 0
         for crlid in d_read_crl_shares[readid]:
             total_crl_count += d_crl_counts[crlid]
@@ -188,12 +186,10 @@ def em(d_read_crl_shares, d_crl_counts, l_multimap_readids, em_threshold, i=1):
 
     for readid in d_read_crl_shares.keys():
         for crlid in d_read_crl_shares[readid]:
-            if crlid not in d_crl_counts_new:
-                d_crl_counts_new[crlid] = 0
             d_crl_counts_new[crlid] += d_read_crl_shares[readid][crlid]
 
     equal = True
-    for crlid in d_crl_counts.keys():
+    for crlid in d_crl_counts_new.keys():
         if abs(d_crl_counts[crlid] - d_crl_counts_new[crlid]) >= em_threshold:
             equal = False
             break
@@ -225,7 +221,6 @@ def quantify_crls(crl_file, em_threshold):
     d_read_crl_shares = defaultdict(lambda: defaultdict(float))
     d_crl_loci_len = defaultdict(lambda: defaultdict(int))
     d_crl_expression = defaultdict(float)
-    l_multimap_readids = []
 
     fh_crl_file = open(crl_file, "r")
     for line in fh_crl_file:
@@ -242,13 +237,11 @@ def quantify_crls(crl_file, em_threshold):
         d_crl_loci_len[crlid][locusid] = locuslength
     fh_crl_file.close()
 
-    d_crl_counts = {}
-
+    l_multimap_readids = []
+    d_crl_counts = defaultdict(int)
     for readid in d_read_crl_shares.keys():
         for crlid in d_read_crl_shares[readid].keys():
             d_read_crl_shares[readid][crlid] = 1 / float(len(d_read_crl_shares[readid]))
-            if crlid not in d_crl_counts:
-                d_crl_counts[crlid] = 0
             d_crl_counts[crlid] += d_read_crl_shares[readid][crlid]
 
         if len(d_read_crl_shares[readid]) > 1:
@@ -292,7 +285,7 @@ if __name__ == "__main__":
                              'CRLs of random multimappings Also consider setting the --crl_share option '
                              'along with this')
 
-    parser.add_argument('-e', '--em_threshold', action='store', type=chira_utilities.score_float, default=1, metavar='',
+    parser.add_argument('-e', '--em_threshold', action='store', type=chira_utilities.score_float, default=0.1, metavar='',
                         dest='em_thresh',
                         help='The maximum difference of transcripts expression between two consecutive iterations '
                              'of EM algorithm to converge.')
@@ -300,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument("-crl", '--build_crls_too', action='store_true', dest='build_crls_too',
                         help="Create CRLs too")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.3')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.4')
 
     args = parser.parse_args()
 
