@@ -95,16 +95,20 @@ def guess_region(transcriptid, read_pos):
     return region
 
 
-def hybridize_with_intarna(seq1, seq2, intarna_mode, accessibility, noseed):
+def hybridize_with_intarna(seq1, seq2, intarna_params):
     # assuming first sequence query and second one is target
-    output = os.popen(" ".join(["IntaRNA", "-m", intarna_mode, "--acc", accessibility, noseed,
-                                "--outMode C", "-q", seq1, "-t", seq2])).read()
+    output = os.popen(" ".join(["IntaRNA", intarna_params, "-q", seq1, "-t", seq2])).read()
     dotbracket = energy = pos = "NA"
     for alignment in output.split("\n"):
         if alignment.startswith('target'):
-            dotbracket = alignment.split(";")[7]
-            energy = alignment.split(";")[8]
-            pos = alignment.split(";")[1] + "&" + alignment.split(";")[4]
+            dotbracket = alignment.split(";")[3]
+            # exchange the dot bracket notion of query and target
+            target_db = dotbracket.split("&")[0].replace("(", ")")
+            query_db = dotbracket.split("&")[1].replace(")", "(")
+            dotbracket = query_db + "&" + target_db
+            energy = alignment.split(";")[4]
+            # target is start1, query is start2
+            pos = alignment.split(";")[2] + "&" + alignment.split(";")[1]
             break
     return dotbracket, pos, energy
 
@@ -165,10 +169,10 @@ def filter_alignments(lines, tpm_threshold, score_cutoff):
     l_read_aligns = []
     for line in lines:
         f = line.rstrip('\n').split('\t')
-        group_tpm = f[12]
+        crl_tpm = f[12]
         prob = f[10]
         locusshare = f[11]
-        if float(group_tpm) < tpm_threshold:
+        if float(crl_tpm) < tpm_threshold:
             continue
         locus_score = float(prob) * float(locusshare)
         if locus_score < score_cutoff:
@@ -185,12 +189,12 @@ def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_r
     alignment_pairs = list(itertools.combinations(l_read_alignments, 2))
 
     for alignment1, alignment2 in alignment_pairs:
-        [segmentid1, transcriptid1, locusid1, groupid1, tx_pos_start1, tx_pos_end1, tx_pos_strand1,
+        [segmentid1, transcriptid1, locusid1, crlid1, tx_pos_start1, tx_pos_end1, tx_pos_strand1,
          cigar1, genomic_pos1, locuspos1, locusshare1, prob1, tpm1] = alignment1.rstrip('\n').split('\t')
-        [segmentid2, transcriptid2, locusid2, groupid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
+        [segmentid2, transcriptid2, locusid2, crlid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
          cigar2, genomic_pos2, locuspos2, locusshare2, prob2, tpm2] = alignment2.rstrip('\n').split('\t')
         # these are multimappings of the same segment
-        if segmentid1 == segmentid2 or locuspos1 == locuspos2 or groupid1 == groupid2 or\
+        if segmentid1 == segmentid2 or locuspos1 == locuspos2 or crlid1 == crlid2 or\
                 float(prob1) == 0 or float(prob2) == 0:
             continue
         # check these are chimeric arms
@@ -213,17 +217,17 @@ def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_r
             if transcriptid2 > transcriptid1:
                 switch_alignments = True
         if switch_alignments:
-            [segmentid1, transcriptid1, locusid1, groupid1, tx_pos_start1, tx_pos_end1, tx_pos_strand1,
+            [segmentid1, transcriptid1, locusid1, crlid1, tx_pos_start1, tx_pos_end1, tx_pos_strand1,
              cigar1, genomic_pos1, locuspos1, locusshare1, prob1, tpm1] = alignment2.rstrip('\n').split(
                 '\t')
-            [segmentid2, transcriptid2, locusid2, groupid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
+            [segmentid2, transcriptid2, locusid2, crlid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
              cigar2, genomic_pos2, locuspos2, locusshare2, prob2, tpm2] = alignment1.rstrip('\n').split(
                 '\t')
         first_locus_score = float("{:.2f}".format(float(prob1) * float(locusshare1)))
         second_locus_score = float("{:.2f}".format(float(prob2) * float(locusshare2)))
         combined_score = first_locus_score + second_locus_score
-        tpm1 = "{:.2f}".format(float(tpm1) * float(locusshare1))
-        tpm2 = "{:.2f}".format(float(tpm2) * float(locusshare2))
+        tpm1 = "{:.2f}".format(float(tpm1))
+        tpm2 = "{:.2f}".format(float(tpm2))
 
         geneid1, name1, region1, tx_len1 = extract_annotations(transcriptid1,
                                                                genomic_pos1,
@@ -257,7 +261,7 @@ def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_r
                    ",".join([str(arm1_start), str(arm1_end), str(arm2_start), str(arm2_end), str(read_length)]),
                    genomic_pos1, genomic_pos2,
                    locuspos1, locuspos2,
-                   groupid1, groupid2,
+                   crlid1, crlid2,
                    tpm1, tpm2,
                    str(first_locus_score), str(second_locus_score), str(combined_score)]
         chimera_found = True
@@ -267,7 +271,7 @@ def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_r
     if not chimera_found:
         # singleton read
         for alignment in l_read_alignments:
-            [segmentid, transcriptid, locusid, groupid, tx_pos_start, tx_pos_end, tx_pos_strand,
+            [segmentid, transcriptid, locusid, crlid, tx_pos_start, tx_pos_end, tx_pos_strand,
              cigar, genomic_pos, locuspos, locusshare, prob, tpm] = alignment.rstrip('\n').split('\t')
 
             geneid, name, region, tx_len = extract_annotations(transcriptid,
@@ -276,7 +280,7 @@ def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_r
                                                                f_gtf)
 
             locus_score = "{:.2f}".format(float(prob) * float(locusshare))
-            tpm = "{:.2f}".format(float(tpm) * float(locusshare))
+            tpm = "{:.2f}".format(float(tpm))
 
             arm_start, arm_end = chira_utilities.match_positions(cigar, tx_pos_strand == "-")
             read_length = chira_utilities.query_length(cigar, tx_pos_strand == "-")
@@ -286,7 +290,7 @@ def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_r
                          ",".join([str(arm_start), str(arm_end), str(read_length)]),
                          genomic_pos,
                          locuspos,
-                         groupid,
+                         crlid,
                          tpm,
                          locus_score]
             l_best_singletons.append(singleton)
@@ -355,17 +359,12 @@ def write_chimeras(chunk_start, chunk_end, total_read_count, d_ref_lengths1, d_r
                 fh_bed.write(bed_line + "\n")
 
 
-def hybridize_and_write(outdir, intarna_mode, accessibility, noseed, n):
-    bed = os.path.join(outdir, "loci.bed.") + n
-    fa = os.path.join(outdir, "loci.fa.") + n
-
+def hybridize_and_write(outdir, intarna_params, n):
     d_loci_seqs = defaultdict()
     fa_seq = SeqIO.parse(open(os.path.join(outdir, "loci.fa.") + n), 'fasta')
     for record in fa_seq:
         # ids of the form ENSMUST00000185852:1602:1618:+(+). Strip last 3 characters
         d_loci_seqs[record.id[:-3]] = str(record.seq).upper().replace('T', 'U')
-    os.remove(bed)
-    os.remove(fa)
 
     d_hybrids = defaultdict()
     file_chimeras = os.path.join(outdir, "chimeras." + n)
@@ -381,8 +380,7 @@ def hybridize_and_write(outdir, intarna_mode, accessibility, noseed, n):
                 if (locuspos1, locuspos2) in d_hybrids:
                     dotbracket, pos, energy = d_hybrids[locuspos1, locuspos2]
                 else:
-                    dotbracket, pos, energy = hybridize_with_intarna(seq1, seq2, intarna_mode,
-                                                                     accessibility, noseed)
+                    dotbracket, pos, energy = hybridize_with_intarna(seq1, seq2, intarna_params)
                     d_hybrids[locuspos1, locuspos2] = dotbracket, pos, energy
             a.append(seq1 + "&" + seq2)
             a.append(dotbracket)
@@ -485,7 +483,7 @@ def parse_annotations(f_gtf):
 
 
 def parse_counts_file(crl_file, tpm_cutoff):
-    d_group_tpm = defaultdict(float)
+    d_crl_tpm = defaultdict(float)
     l_loci_bed = set()
     prev_readid = None
     read_count = 0
@@ -495,16 +493,16 @@ def parse_counts_file(crl_file, tpm_cutoff):
             readid = '|'.join(f[0].split("|")[:-1])
             if readid != prev_readid:
                 read_count += 1
-            groupid = f[3]
-            group_tpm = f[12]
-            d_group_tpm[groupid] = float(group_tpm)
+            crlid = f[3]
+            crl_tpm = f[12]
+            d_crl_tpm[crlid] = float(crl_tpm)
             b = f[9].split(":")
             locus_bed_entry = "\t".join([":".join(b[0:-3]), b[-3], b[-2], f[9], "1", b[-1]])
             if locus_bed_entry not in l_loci_bed:
                 l_loci_bed.add(locus_bed_entry)
             prev_readid = readid
 
-    uniq_tpms = sorted(list(set(d_group_tpm.values())))
+    uniq_tpms = sorted(list(set(d_crl_tpm.values())))
     tpm_threshold = uniq_tpms[int(tpm_cutoff * len(uniq_tpms))]
 
     return read_count, tpm_threshold
@@ -522,74 +520,87 @@ def merge_files(inprefix, outfile, header, r):
         os.remove(inprefix + "." + str(i))
 
 
-def write_interaction(fh_out, interaction, d_interactions, common_info):
-    fh_out.write("\t".join([interaction,
-                            str(len(set(d_interactions["readid"]))),
-                            common_info,
-                            ";".join(sorted(set(d_interactions["region1"]))),
-                            ";".join(sorted(set(d_interactions["region2"]))),
-                            ";".join(sorted(set(d_interactions["ref1"]))),
-                            ";".join(sorted(set(d_interactions["ref2"])))]) + "\n")
+def hybridization_positions(dotbracket1, dotbracket2):
+    end1 = -1
+    end2 = -1
+    for i, c1 in enumerate(dotbracket1):
+        if dotbracket1[i] == '(':
+            end1 = i + 1
+            dotbracket1[i] = "."
+            for j, c2 in enumerate(reversed(dotbracket2)):
+                if dotbracket2[j] == ')':
+                    end2 = j + 1
+                    dotbracket2[j] = '.'
+                    break
+    return end1, end2
 
 
 def write_interaction_summary(outdir):
     d_interactions = defaultdict(lambda: defaultdict(list))
-    common_info = ""
-    prev_interaction = None
     with open(os.path.join(outdir, "chimeras")) as fh_in:
         next(fh_in)
         for line in fh_in:
             f = line.rstrip("\n").split("\t")
-            locus1 = f[20]
-            locus2 = f[21]
-            readid = f[0]
-            ref1 = f[1]
-            ref2 = f[2]
-            region1 = f[7]
-            region2 = f[8]
-            tpm1 = f[24]
-            tpm2 = f[25]
-            score1 = f[26]
-            score2 = f[27]
+            (readid, ref1, ref2, region1, region2, locus1, locus2, tpm1, tpm2, score1, score2) = (f[0], f[1], f[2],
+                                                                                                  f[7], f[8], f[20],
+                                                                                                  f[21], f[24], f[25],
+                                                                                                  f[26], f[27])
             tpm = str(float(tpm1) + float(tpm2))
             score = str(float(score1) + float(score2))
             [sequence1, sequence2] = f[29].split("&")
             hybrid = f[30]
-            hybrid_pos = f[31]
+            hybrid_start_pos = f[31]
             mfe = f[32]
-            interaction = locus1 + "\t" + locus2
-            if locus2 + "\t" + locus1 in d_interactions:
-                interaction = locus2 + "\t" + locus1
-                ref2 = f[1]
-                ref1 = f[2]
-                region2 = f[7]
-                region1 = f[8]
-                tpm2 = f[24]
-                tpm1 = f[25]
-                score2 = f[26]
-                score1 = f[27]
+            interaction = "\t".join(locus1.split(":")) + "\t" + "\t".join(locus2.split(":"))
+            hybridization_pos = interaction
+            interaction_otherway = "\t".join(locus2.split(":")) + "\t" + "\t".join(locus1.split(":"))
+            if interaction_otherway in d_interactions:
+                interaction = interaction_otherway
+                (ref2, ref1, region2, region1, tpm2, tpm1, score2, score1) = (f[1], f[2], f[7], f[8], f[24], f[25],
+                                                                              f[26], f[27])
                 [sequence2, sequence1] = f[29].split("&")
             d_interactions[interaction]["readid"].append(readid)
             d_interactions[interaction]["ref1"].append(ref1)
             d_interactions[interaction]["ref2"].append(ref2)
             d_interactions[interaction]["region1"].append(region1)
             d_interactions[interaction]["region2"].append(region2)
-            common_info = "\t".join([sequence1, sequence2, hybrid, hybrid_pos, mfe,
+            hybridized_sequence1 = "NA"
+            hybridized_sequence2 = "NA"
+            if hybrid != "NA":
+                [refid1, ref_start1, re1, ref_strand1, refid2, ref_start2, re2, ref_strand2] = interaction.split("\t")
+                hybrid_end1, hybrid_end2 = hybridization_positions(list(hybrid.split("&")[0]),
+                                                                   list(hybrid.split("&")[1]))
+                # decrease by 1 before adding to the reference start
+                hybrid_start1 = int(hybrid_start_pos.split("&")[0]) - 1
+                hybrid_start2 = int(hybrid_start_pos.split("&")[1]) - 1
+
+                hybridization_pos = "\t".join([refid1,
+                                               str(int(ref_start1) + hybrid_start1),
+                                               str(int(ref_start1) + hybrid_end1), ref_strand1,
+                                               refid2,
+                                               str(int(ref_start2) + hybrid_start2),
+                                               str(int(ref_start2) + hybrid_end2), ref_strand2])
+
+                hybridized_sequence1 = sequence1[hybrid_start1:hybrid_end1]
+                hybridized_sequence2 = sequence2[hybrid_start2:hybrid_end2]
+            common_info = "\t".join([sequence1, sequence2, hybrid, mfe, hybridized_sequence1, hybridized_sequence2,
+                                     hybrid_start_pos, hybridization_pos,
                                      tpm1, tpm2, tpm, score1, score2, score])
             d_interactions[interaction]["common"] = [common_info]
 
     with open(os.path.join(outdir, "interactions.temp"), "w") as fh_out:
         for interaction in d_interactions.keys():
-            fh_out.write("\t".join([interaction,
-                                    str(len(set(d_interactions[interaction]["readid"]))),
+            fh_out.write("\t".join([str(len(set(d_interactions[interaction]["readid"]))),
+                                    interaction,
                                     d_interactions[interaction]["common"][0],
                                     ";".join(sorted(set(d_interactions[interaction]["region1"]))),
                                     ";".join(sorted(set(d_interactions[interaction]["region2"]))),
                                     ";".join(sorted(set(d_interactions[interaction]["ref1"]))),
                                     ";".join(sorted(set(d_interactions[interaction]["ref2"])))]) + "\n")
 
-    os.system("sort -k 3nr,3 " + os.path.join(outdir, "interactions.temp") + " > " + os.path.join(outdir, "interactions"))
+    os.system("sort -k 1nr,1 " + os.path.join(outdir, "interactions.temp") + " > " + os.path.join(outdir, "interactions"))
     os.remove(os.path.join(outdir, "interactions.temp"))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Chimeric Read Annotator: extract chimeras',
@@ -625,14 +636,31 @@ if __name__ == "__main__":
     parser.add_argument("-r", '--hybridize', action='store_true', dest='hybridize',
                         help="Hybridize the predicted chimeras")
 
-    parser.add_argument("-ns", '--noSeed', action='store_true', dest='no_seed',
+    parser.add_argument("-ns", '--no_seed', action='store_true', dest='no_seed',
                         help="Do not enforce seed interactions")
 
-    parser.add_argument("-a", '--accessibility', type=str, choices=["C", "N"], default='N', required=False,
-                        dest='accessibility', metavar='', help='Accessibility computation: C (compute) or N (not)')
+    parser.add_argument("-acc", '--accessibility', type=str, choices=["C", "N"], default='N', required=False,
+                        dest='accessibility', metavar='', help='IntaRNA accessibility: C (compute) or N (not)')
 
     parser.add_argument("-m", '--intarna_mode', type=str, choices=["H", "M", "S"], default='H', required=False,
-                        dest='intarna_mode', metavar='', help='IntaRNA mode to use: H (heuristic) or M (exact) or S (seed-only)')
+                        dest='intarna_mode', metavar='', help='IntaRNA mode: H (heuristic), M (exact), S (seed-only)')
+
+    parser.add_argument('-t', '--temperature', action='store', type=float, default=37, metavar='',
+                        dest='temperature',
+                        help='IntaRNA temperature parameter in Celsius to setup the VRNA energy parameters')
+
+    parser.add_argument('-sbp', '--seed_bp', action='store', type=int, default=5, metavar='',
+                        dest='seed_bp', choices=range(2, 20),
+                        help='IntaRNA --seedBP parameter: number of inter-molecular base pairs within the seed region')
+
+    parser.add_argument('-smpu', '--seed_min_pu', action='store', type=chira_utilities.score_float, default=0,
+                        metavar='', dest='seed_min_pu',
+                        help='IntaRNA --seedMinPu parameter: minimal unpaired probability '
+                             '(per sequence) a seed region may have')
+
+    parser.add_argument('-accw', '--acc_width', action='store', type=int, default=150, metavar='',
+                        dest='acc_width', choices=range(0, 99999),
+                        help='IntaRNA --accW parameter:  sliding window size for accessibility computation')
 
     parser.add_argument('-f1', '--ref_fasta1', action='store', dest='ref_fasta1', required=True,
                         metavar='', help='First prioroty fasta file')
@@ -646,7 +674,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", '--summerize', action='store_true', dest='summerize',
                         help="Summerize interactions at loci level")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.3')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.4')
 
     args = parser.parse_args()
 
@@ -670,9 +698,12 @@ if __name__ == "__main__":
 
     if args.hybridize and args.f_gtf and not args.f_ref:
         sys.stderr.write("Need the reference fasta file to hybridize. Make sure to provide the genomic fasta file"
-                         " in case you already provided a GTF file. \n")
+                         " in case you already provided a GTF file.\n")
         sys.exit(1)
 
+    if args.temperature < 0 or args.temperature > 100:
+        sys.stderr.write("IntaRNA tempertature must be between 0 and 100!\n")
+        sys.exit(1)
     if args.f_gtf:
         # Parse the annotations and save them to dictionaries. Additionally write exons bed files to the outputdir
         print("Parsing the annotation file")
@@ -744,19 +775,27 @@ if __name__ == "__main__":
             for l in sorted(set(process.stdout.readlines())):
                 print(l, end="")
 
+        noseed_param = ""
+        if args.no_seed:
+            noseed_param = "--noSeed"
+        common_intarna_params = " ".join(["--outMode C", "--outCsvCols id1,start1,start2,hybridDPfull,E",
+                                          noseed_param, "-m", args.intarna_mode, "--acc", args.accessibility,
+                                          "--temperature", str(args.temperature), "--seedBP", str(args.seed_bp),
+                                          "--seedMinPu", str(args.seed_min_pu), "--accW", str(args.acc_width)])
         jobs = []
         # hybridize chimeric reads
         for k in range(args.processes):
-            noseed_param = ""
-            if args.no_seed:
-                noseed_param = "--noSeed"
-            j = Process(target=hybridize_and_write, args=(args.outdir, args.intarna_mode, args.accessibility, noseed_param, str(k)))
+            j = Process(target=hybridize_and_write, args=(args.outdir, common_intarna_params, str(k)))
             jobs.append(j)
 
         for j in jobs:
             j.start()
         for j in jobs:
             j.join()
+
+        for k in range(args.processes):
+            os.remove(os.path.join(args.outdir, "loci.fa.") + str(k))
+            os.remove(os.path.join(args.outdir, "loci.bed.") + str(k))
 
         # remove the temporary reference file
         if not args.f_ref:
