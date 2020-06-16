@@ -302,8 +302,8 @@ def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_r
                 add_locus_to_set(a[20], l_loci_bed)
                 add_locus_to_set(a[21], l_loci_bed)
             else:
-                a.append("NA&NA")
-                a.append("NA&NA")
+                a.append("NA")
+                a.append("NA")
                 a.append("NA")
                 a.append("NA")
             fh_chimeras.write("\t".join(a) + "\n")
@@ -547,7 +547,9 @@ def write_interaction_summary(outdir):
                                                                                                   f[26], f[27])
             tpm = str(float(tpm1) + float(tpm2))
             score = str(float(score1) + float(score2))
-            [sequence1, sequence2] = f[29].split("&")
+            sequence1 = sequence2 = "NA"
+            if f[29] != "NA":
+                [sequence1, sequence2] = f[29].split("&")
             hybrid = f[30]
             hybrid_start_pos = f[31]
             mfe = f[32]
@@ -558,7 +560,8 @@ def write_interaction_summary(outdir):
                 interaction = interaction_otherway
                 (ref2, ref1, region2, region1, tpm2, tpm1, score2, score1) = (f[1], f[2], f[7], f[8], f[24], f[25],
                                                                               f[26], f[27])
-                [sequence2, sequence1] = f[29].split("&")
+                if f[29] != "NA":
+                    [sequence2, sequence1] = f[29].split("&")
             d_interactions[interaction]["readid"].append(readid)
             d_interactions[interaction]["ref1"].append(ref1)
             d_interactions[interaction]["ref2"].append(ref2)
@@ -674,7 +677,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", '--summerize', action='store_true', dest='summerize',
                         help="Summerize interactions at loci level")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.4')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.5')
 
     args = parser.parse_args()
 
