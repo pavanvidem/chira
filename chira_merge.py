@@ -600,7 +600,7 @@ if __name__ == "__main__":
                         dest='min_locus_size',
                         help='Minimum number of alignments required per mered locus')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.5')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.6')
 
     args = parser.parse_args()
 
