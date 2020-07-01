@@ -293,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument("-crl", '--build_crls_too', action='store_true', dest='build_crls_too',
                         help="Create CRLs too")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.6')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.7')
 
     args = parser.parse_args()
 

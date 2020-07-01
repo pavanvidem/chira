@@ -550,13 +550,15 @@ def write_interaction_summary(outdir):
             tpm = str(float(tpm1) + float(tpm2))
             score = str(float(score1) + float(score2))
             sequence1 = sequence2 = "NA"
+            if f[29] != "NA":
+                [sequence1, sequence2] = f[29].split("&")
             dotbracket = f[30]
             hybrid_start_pos = f[31]
             mfe = f[32]
             interaction = "\t".join(locus1.split(":")) + "\t" + "\t".join(locus2.split(":"))
             hybridization_pos = interaction
             [refid1, ref_start1, re1, ref_strand1, refid2, ref_start2, re2, ref_strand2] = interaction.split("\t")
-            hybridized_sequences = "NA"
+            hybridized_sequences = "NA\tNA"
             interaction_otherway = "\t".join(locus2.split(":")) + "\t" + "\t".join(locus1.split(":"))
 
             if interaction_otherway in d_interactions:
@@ -565,15 +567,14 @@ def write_interaction_summary(outdir):
                 (ref2, ref1, region2, region1, tpm2, tpm1, score2, score1) = (f[1], f[2], f[7], f[8], f[24], f[25],
                                                                               f[26], f[27])
             if dotbracket != "NA":
-                [sequence1, sequence2] = f[29].split("&")
                 hybrid_end1, hybrid_end2 = hybridization_positions(list(dotbracket.split("&")[0]),
                                                                    list(dotbracket.split("&")[1]))
                 # decrease by 1 before adding to the reference start
                 hybrid_start1 = int(hybrid_start_pos.split("&")[0]) - 1
                 hybrid_start2 = int(hybrid_start_pos.split("&")[1]) - 1
-                hybridization_pos1 = "\t".join([refid1, str(int(ref_start1) + hybrid_start1 + 1),
+                hybridization_pos1 = "\t".join([refid1, str(int(ref_start1) + hybrid_start1),
                                                 str(int(ref_start1) + hybrid_end1), ref_strand1])
-                hybridization_pos2 = "\t".join([refid2, str(int(ref_start2) + hybrid_start2 + 1),
+                hybridization_pos2 = "\t".join([refid2, str(int(ref_start2) + hybrid_start2),
                                                str(int(ref_start2) + hybrid_end2), ref_strand2])
                 hybridized_sequence1 = sequence1[hybrid_start1:hybrid_end1]
                 hybridized_sequence2 = sequence2[hybrid_start2:hybrid_end2]
@@ -686,7 +687,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", '--summerize', action='store_true', dest='summerize',
                         help="Summerize interactions at loci level")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.6')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.3.7')
 
     args = parser.parse_args()
 
