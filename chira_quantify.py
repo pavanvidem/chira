@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 import os
-import sys
 from collections import defaultdict
 import argparse
 import chira_utilities
-sys.setrecursionlimit(10000)
+import copy
 
 
 def build_crls(build_crls_too, bed, merged_bed, crl_file, crl_share_cutoff, min_locus_size):
@@ -173,32 +172,35 @@ def build_crls(build_crls_too, bed, merged_bed, crl_file, crl_share_cutoff, min_
                         fh_crl_file.write(entry + "\n")
 
 
-def em(d_read_crl_shares, d_crl_counts, l_multimap_readids, em_threshold, i=1):
-    print("iteration: " + str(i))
-    d_crl_counts_new = defaultdict(int)
+def em(d_alpha, d_rho, library_size, l_multimap_readids, em_threshold):
+    i = 1
+    sum_of_rho_diff = float('inf')
+    while sum_of_rho_diff > em_threshold and i <= 1000:
+        print("iteration: " + str(i))
+        # E-step
+        d_rho_old = copy.deepcopy(d_rho)
+        d_rho.clear()
+        # iterate through multi-mapped read segments
+        for readid in l_multimap_readids:
+            if len(d_alpha[readid]) == 1:
+                continue
+            total_crl_rel_abundancy = 0
+            for crlid in d_alpha[readid]:
+                total_crl_rel_abundancy += d_rho_old[crlid]
+            for crlid in d_alpha[readid]:
+                d_alpha[readid][crlid] = d_rho_old[crlid] / float(total_crl_rel_abundancy)
 
-    for readid in l_multimap_readids:
-        total_crl_count = 0
-        for crlid in d_read_crl_shares[readid]:
-            total_crl_count += d_crl_counts[crlid]
-        for crlid in d_read_crl_shares[readid]:
-            d_read_crl_shares[readid][crlid] = d_crl_counts[crlid] / float(total_crl_count)
-
-    for readid in d_read_crl_shares.keys():
-        for crlid in d_read_crl_shares[readid]:
-            d_crl_counts_new[crlid] += d_read_crl_shares[readid][crlid]
-
-    equal = True
-    for crlid in d_crl_counts_new.keys():
-        if abs(d_crl_counts[crlid] - d_crl_counts_new[crlid]) >= em_threshold:
-            equal = False
-            break
-    if equal:
-        return d_read_crl_shares
-    else:
-        d_crl_counts.clear()
+        for readid in d_alpha.keys():
+            for crlid in d_alpha[readid]:
+                d_rho[crlid] += d_alpha[readid][crlid]
+        # relative abundancies
+        # M-step
+        sum_of_rho_diff = 0
+        for crlid in d_rho:
+            d_rho[crlid] = d_rho[crlid] / float(library_size)
+            sum_of_rho_diff += abs(d_rho[crlid] - d_rho_old[crlid])
         i += 1
-        return em(d_read_crl_shares, d_crl_counts_new, l_multimap_readids, em_threshold, i)
+    return d_alpha
 
 
 def tpm(d_crl_expression, d_crl_loci_len):
@@ -218,9 +220,10 @@ def tpm(d_crl_expression, d_crl_loci_len):
 
 
 def quantify_crls(crl_file, em_threshold):
-    d_read_crl_shares = defaultdict(lambda: defaultdict(float))
     d_crl_loci_len = defaultdict(lambda: defaultdict(int))
-    d_crl_expression = defaultdict(float)
+    l_multimap_readids = []
+    d_alpha = defaultdict(lambda: defaultdict(float))
+    d_rho = defaultdict(float)
 
     fh_crl_file = open(crl_file, "r")
     for line in fh_crl_file:
@@ -233,29 +236,33 @@ def quantify_crls(crl_file, em_threshold):
         locuslength = int(pos[-2]) - int(pos[-3]) + 1
         # a single locus can belong to multiple crls
         # one read can be part of multiple crls
-        d_read_crl_shares[readid][crlid] = 1
+        d_alpha[readid][crlid] = 1
         d_crl_loci_len[crlid][locusid] = locuslength
     fh_crl_file.close()
 
-    l_multimap_readids = []
-    d_crl_counts = defaultdict(int)
-    for readid in d_read_crl_shares.keys():
-        for crlid in d_read_crl_shares[readid].keys():
-            d_read_crl_shares[readid][crlid] = 1 / float(len(d_read_crl_shares[readid]))
-            d_crl_counts[crlid] += d_read_crl_shares[readid][crlid]
-
-        if len(d_read_crl_shares[readid]) > 1:
+    # intial read segment contributions
+    for readid in d_alpha.keys():
+        for crlid in d_alpha[readid].keys():
+            d_alpha[readid][crlid] = 1 / float(len(d_alpha[readid]))
+            d_rho[crlid] += d_alpha[readid][crlid]
+        if len(d_alpha[readid]) > 1:
             l_multimap_readids.append(readid)
 
-    sys.setrecursionlimit(10000)
-    d_res = em(d_read_crl_shares, d_crl_counts, l_multimap_readids, em_threshold)
+    library_size = sum(d_rho.values())
+    # intial relative abundancies
+    for crlid in d_rho:
+        d_rho[crlid] = d_rho[crlid] / library_size
+
+    d_res = em(d_alpha, d_rho, library_size, l_multimap_readids, em_threshold)
+
+    d_crl_expression = defaultdict(float)
     for readid in d_res.keys():
         for crlid in d_res[readid]:
             d_crl_expression[crlid] += d_res[readid][crlid]
 
     d_crl_tpm = tpm(d_crl_expression, d_crl_loci_len)
 
-    return d_res, d_crl_tpm
+    return d_alpha, d_crl_tpm
 
 
 if __name__ == "__main__":
@@ -285,7 +292,7 @@ if __name__ == "__main__":
                              'CRLs of random multimappings Also consider setting the --crl_share option '
                              'along with this')
 
-    parser.add_argument('-e', '--em_threshold', action='store', type=chira_utilities.score_float, default=0.1, metavar='',
+    parser.add_argument('-e', '--em_threshold', action='store', type=chira_utilities.score_float, default=0.00001, metavar='',
                         dest='em_thresh',
                         help='The maximum difference of transcripts expression between two consecutive iterations '
                              'of EM algorithm to converge.')
