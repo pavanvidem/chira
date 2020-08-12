@@ -50,6 +50,8 @@ def match_positions(cigar, is_reverse):
             else:
                 match_start = 1
                 match_end = int(c[0])
+        elif c[1] == "I":
+            match_end = match_end + int(c[0])
     return match_start, match_end
 
 
