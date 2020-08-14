@@ -306,7 +306,7 @@ if __name__ == "__main__":
                         dest='chimeric_overlap',
                         help='Maximum number of bases allowed between the chimeric segments of a read')
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.4.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.4.1')
 
     args = parser.parse_args()
     print('Query fasta                          : ' + args.fasta)
