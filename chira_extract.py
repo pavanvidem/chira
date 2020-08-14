@@ -548,7 +548,7 @@ def write_interaction_summary(outdir):
                                                                                                   f[21], f[24], f[25],
                                                                                                   f[26], f[27])
             tpm = str(float(tpm1) + float(tpm2))
-            score = str(float(score1) + float(score2))
+            score = str(float(score1) * float(score2))
             sequence1 = sequence2 = "NA"
             if f[29] != "NA":
                 [sequence1, sequence2] = f[29].split("&")
@@ -687,7 +687,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", '--summerize', action='store_true', dest='summerize',
                         help="Summerize interactions at loci level")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.4.1')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.4.2')
 
     args = parser.parse_args()
 
