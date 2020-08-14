@@ -225,9 +225,9 @@ def extract_and_write(readid, l_read_alignments, l_loci_bed, d_ref_lengths1, d_r
             [segmentid2, transcriptid2, locusid2, crlid2, tx_pos_start2, tx_pos_end2, tx_pos_strand2,
              cigar2, genomic_pos2, locuspos2, locusshare2, prob2, tpm2] = alignment1.rstrip('\n').split(
                 '\t')
-        first_locus_score = float("{:.2f}".format(float(prob1) * float(locusshare1)))
-        second_locus_score = float("{:.2f}".format(float(prob2) * float(locusshare2)))
-        combined_score = first_locus_score + second_locus_score
+        first_locus_score = float("{:.2f}".format(float(prob1)))  # * float(locusshare1)))
+        second_locus_score = float("{:.2f}".format(float(prob2)))  # * float(locusshare2)))
+        combined_score = first_locus_score * second_locus_score
         tpm1 = "{:.2f}".format(float(tpm1))
         tpm2 = "{:.2f}".format(float(tpm2))
 
@@ -687,7 +687,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", '--summerize', action='store_true', dest='summerize',
                         help="Summerize interactions at loci level")
 
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.4.0')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.4.1')
 
     args = parser.parse_args()
 
