@@ -13,8 +13,8 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
 * Description: This tool handles the mapping of the reads to reference transcriptome. User can choose between the bwa-mem and CLAN alignment tools.
 * Inputs
   * A fasta file containing reads
-  * A reference fasta file containing transcript sequences
-  * An optional second reference fasta file, incase if  you split your reference into two
+  * A FASTA file containing reference transcript sequences
+  * An optional second reference FASTA file, if split-reference is used
 * Outputs
   * BED file containing the alignments
   * Optional unmapped FASTA file
@@ -23,7 +23,9 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
 * Description: This tool merges the overlapping aligned positions to define the read concentrated loci. If an annotation GTF file produced, the transcriptomic alignment positions are first converted to their corresponding genomic positions.
 * Inputs
   * Alignments in BED format
-  * An annotation GTF file contaning reference genomic positions.
+  * An annotation GFF file contaning reference genomic positions.
+  * A FASTA file containing reference transcript sequences
+  * An optional second reference FASTA file, if split-reference is used
 * Outputs
   * BED file containing the alignments with reads categorized into segments depending on which part of the read is aligned.
   * BED file containing merged alignments. 4th column contains all the alignments merged into that location and 5th column contains number of reads.
@@ -39,9 +41,11 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
 ## chira_extract.py
 * Description: This tool extracts the best chimeric alignments for each read. User can optionally hybridize the loci where the chimeric arms are mapping to. 
 * Inputs
- * Tabular file containg CRLs information
-  * Annotation GTF file
-  * Reference fasta files. Provide both in case of split reference.
-  * If your alignments are merged at genomic level in previous step (chira_merge.py), then provide a reference genomic fasta fille.
+  * Tabular file containg CRLs information
+  * Annotation GFF file
+  * A FASTA file containing reference transcript sequences
+  * An optional second reference FASTA file, if split-reference is used  
+  * If your alignments are merged at genomic level in previous step (chira_merge.py), then provide a reference genomic FASTA fille.
 * Outputs
-  * Tabular file containing chimeras information
+  * Tabular file of chimeric reads information
+  * Tabular file of detected interactions
