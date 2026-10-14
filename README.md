@@ -19,6 +19,12 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
 * Outputs
   * BED file containing the alignments
   * Optional unmapped FASTA file
+* Mapping behavior
+  * BWA runs both long- and short-segment iterations on the input reads for each supplied reference index. `--nhits1` and `--nhits2` are passed to BWA's `-h` option (defaults: 50 and 100).
+  * Primary alignments on the requested strand are retained. XA alternatives on that strand are compared by aligned query span (`M/I/=/X`), not by reference span; only alternatives attaining the maximum span for that BAM record are retained.
+  * External commands use literal argument lists and failures stop processing, including failures on either side of the BWA/SAMtools pipeline. Paths containing spaces are supported.
+  * Existing indices require `--index1`. Building indices requires `--build` and `--ref_fasta1`. CLAN also needs reference FASTA files when using existing indices, with the second reference and index provided together.
+  * CLAN output lacks strand information, so converted CLAN BED records retain the existing `+` strand representation.
 
 ## chira_merge.py
 * Description: This tool merges the overlapping aligned positions to define the read concentrated loci. If an annotation GTF file produced, the transcriptomic alignment positions are first converted to their corresponding genomic positions.
