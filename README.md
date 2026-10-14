@@ -2,6 +2,18 @@
 
 ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as CLASH, CLEAR-CLIP, PARIS, SPLASH etc. Following are the descriptions of the each tool. Here we provide descriptions about the input and ouptput files. For the detailed description of the other parameters please look at the help texts of tools.
 
+## Development environment
+
+Create the environment containing the Python dependencies and external pipeline tools:
+
+```sh
+conda env create -f environment.yml
+conda activate chira-refactor
+python -B -m unittest discover -s tests -v
+```
+
+The test suite includes real BEDTools and Blockbuster integration checks. These checks are skipped if their executables are unavailable.
+
 ## chira_collapse.py
 * Description: This tool deduplicates reads from a FASTQ file and writes each unique sequence/UMI pair once to FASTA with its read count. Output is sorted by trimmed sequence and UMI for reproducible sequence IDs.
 * Inputs
@@ -35,7 +47,13 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
   * An optional second reference FASTA file, if split-reference is used
 * Outputs
   * BED file containing the alignments with reads categorized into segments depending on which part of the read is aligned.
-  * BED file containing merged alignments. 4th column contains all the alignments merged into that location and 5th column contains number of reads.
+  * Five-column merged locus file: reference, start, end, strand, and semicolon-separated alignment descriptions.
+* Merging behavior
+  * Input alignments must be grouped by read ID, as in the mapping stage's `sorted.bed`. Segment positions use inclusive read coordinates; locus merging uses half-open BED coordinates. Adjacent BED intervals do not overlap.
+  * The overlap method greedily merges intervals when their shared bases meet the overlap fraction of either interval. It retains all ties for the longest reference span per read/transcript pair within a locus.
+  * Annotation exons are deduplicated by position and sorted in transcript orientation, independently of input feature order. Transcript identifiers come from `transcript_id`, falling back to `Name`.
+  * Transcript-to-genome conversion clips alignments to each intersected exon and keeps the longest genomic fragment for spliced alignments, including the final alignment. Ties are resolved lexicographically. Genomic strand combines transcript strand and alignment orientation.
+  * External sorting, Blockbuster and BEDTools commands use checked argument lists; failures stop processing. The output directory is created after argument validation.
 
 ## chira_quantify.py
 * Description: This tool first creates CRLS from merged BED file and quantifies them based on the mapped reads.

@@ -2,18 +2,24 @@
 import chira_utilities
 import argparse
 import os
-import sys
+import shlex
+import subprocess
 from collections import defaultdict
 import datetime
 import itertools
-import re
 from BCBio import GFF
 
 
+def run_command(command, stdout=None):
+    """Run literal arguments and stop on an external command failure."""
+    print(shlex.join(command))
+    subprocess.run(command, stdout=stdout, check=True)
+
+
 def filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, chimeric_only, lt):
-    split_reference = False
-    if len(refids1) > 0 and len(refids2) > 0:
-        split_reference = True
+    """Select longest qualifying singletons or closest chimeric pairs."""
+    refids1, refids2 = set(refids1), set(refids2)
+    split_reference = bool(refids1 and refids2)
 
     alignments1 = defaultdict(list)
     alignments2 = defaultdict(list)
@@ -41,12 +47,10 @@ def filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, 
     filtered_alignments = defaultdict(lambda: defaultdict())
     longest_chimeric = 0
     longest_singleton = 0
-    chimera_found = False
-    d_closest_chimeric = defaultdict(lambda: 10000)
+    d_closest_chimeric = defaultdict(lambda: float('inf'))
     # find longest and closest chimeric
     for readpos1, readpos2 in alignments_pairs:
         if chira_utilities.inclusive_overlap(readpos1, readpos2) <= chimeric_overlap:
-            chimera_found = True
             # total length of chimeric segments
             chimeric_length = readpos1[1] - readpos1[0] + readpos2[1] - readpos2[0] + 2
             if chimeric_length > longest_chimeric:
@@ -78,12 +82,13 @@ def filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, 
                 singleton_length = readpos[1] - readpos[0] + 1
                 if singleton_length < longest_singleton * lt:
                     continue
-                prev_ref = None
+                seen_references = set()
                 for refpos, bedline in prev_read_alignments[readpos].items():
                     # for each read position and reference consider 1st alignmnet only
-                    if refpos.split(',')[0] != prev_ref:
+                    reference = refpos.split(',')[0]
+                    if reference not in seen_references:
                         filtered_alignments[readpos][refpos] = bedline
-                    prev_ref = refpos.split(',')[0]
+                        seen_references.add(reference)
     # chimeric read
     else:
         for readpos1, readpos2 in alignments_pairs:
@@ -110,8 +115,14 @@ def filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, 
                     if qualified and chimeric_distance == d_closest_chimeric[refpos1, refpos2]:
                         filtered_alignments[readpos1][refpos1] = prev_read_alignments[readpos1][refpos1]
                         filtered_alignments[readpos2][refpos2] = prev_read_alignments[readpos2][refpos2]
-    prev_read_alignments.clear()
     return filtered_alignments
+
+
+def reciprocal_read_overlap(first, second, cutoff):
+    """Check inclusive overlap as a fraction of both read spans."""
+    shared = chira_utilities.inclusive_overlap(first, second)
+    return (shared / float(first[1] - first[0] + 1) >= cutoff and
+            shared / float(second[1] - second[0] + 1) >= cutoff)
 
 
 def write_segments(prev_readid, filtered_alignments, segment_overlap_fraction, fh_out):
@@ -126,26 +137,13 @@ def write_segments(prev_readid, filtered_alignments, segment_overlap_fraction, f
                 break
             l_read_pos = sorted(d_read_segments[segmentid])
             # check with the first position in this segment
-            first_match_start = l_read_pos[0][0]
-            first_match_end = l_read_pos[0][1]
-            overlap = chira_utilities.inclusive_overlap((first_match_start, first_match_end),
-                                                       (current_match_start, current_match_end))
-            overlap_percent1 = overlap / float(first_match_end - first_match_start + 1)
-            overlap_percent2 = overlap / float(current_match_end - current_match_start + 1)
+            current = (current_match_start, current_match_end)
             # reciprocal overlap is needed, continue if one fails
-            if overlap_percent1 < segment_overlap_fraction or \
-                    overlap_percent2 < segment_overlap_fraction:
+            if not reciprocal_read_overlap(l_read_pos[0], current, segment_overlap_fraction):
                 continue
 
             # check with the last position in this segment
-            last_match_start = l_read_pos[-1][0]
-            last_match_end = l_read_pos[-1][1]
-            overlap = chira_utilities.inclusive_overlap((last_match_start, last_match_end),
-                                                       (current_match_start, current_match_end))
-            overlap_percent1 = overlap / float(last_match_end - last_match_start + 1)
-            overlap_percent2 = overlap / float(current_match_end - current_match_start + 1)
-            if overlap_percent1 >= segment_overlap_fraction and \
-                    overlap_percent2 >= segment_overlap_fraction:
+            if reciprocal_read_overlap(l_read_pos[-1], current, segment_overlap_fraction):
                 similar_cigar_found = True
                 matched_segment = segmentid
                 break
@@ -234,47 +232,39 @@ def stitch_alignments(alignments_by_ref, read_alignments, prev_readid):
 
 
 def reads_to_segments(bed, outdir, segment_overlap_fraction, chimeric_overlap, refids1, refids2, chimeric_only, lt):
-    prev_readid = None
-    prev_read_alignments = defaultdict(lambda: defaultdict())
-    # prev_alignments_by_ref = defaultdict(lambda: defaultdict(list))
+    """Convert contiguous read groups from name-sorted BED into segments."""
     with open(bed) as fh_in, open(os.path.join(outdir, "segments.temp.bed"), "w") as fh_out:
-        for line in fh_in:
-            desc = line.split("\t")[3].split(",")
-            readid = desc[0]
-            # next read encountered , process the previous read alignments
-            if prev_readid != readid:
-                # stitch_alignments(prev_alignments_by_ref, prev_read_alignments, prev_readid)
-                # prev_alignments_by_ref.clear()
-                # potential problem is with cigar with insertions or deletions. consider longest for those cases
-                # filter alignments by length and position
-                filtered_alignments = filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, chimeric_only, lt)
-                # index read segments
-                write_segments(prev_readid, filtered_alignments, segment_overlap_fraction, fh_out)
-            cigar = desc[-1]
-            strand = desc[-2]
-            referencepos = ",".join([desc[-5], desc[-4], desc[-3], desc[-2]])
-            match_start, match_end = chira_utilities.match_positions(cigar, strand == "-")
-            prev_read_alignments[match_start, match_end, strand][referencepos] = line
-            prev_readid = readid
-        # process last read alignments
-        filtered_alignments = filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, chimeric_only, lt)
-        write_segments(prev_readid, filtered_alignments, segment_overlap_fraction, fh_out)
+        for readid, lines in itertools.groupby(fh_in, key=lambda line: line.split('\t')[3].split(',')[0]):
+            read_alignments = defaultdict(dict)
+            for line in lines:
+                desc = line.split('\t')[3].split(',')
+                if len(desc) != 6:
+                    raise ValueError('Invalid alignment description for {!r}'.format(readid))
+                strand, cigar = desc[-2:]
+                match_start, match_end = chira_utilities.match_positions(cigar, strand == '-')
+                referencepos = ','.join(desc[1:5])
+                read_alignments[match_start, match_end, strand][referencepos] = line.rstrip('\n') + '\n'
+            filtered = filter_alignments(read_alignments, chimeric_overlap, refids1, refids2, chimeric_only, lt)
+            write_segments(readid, filtered, segment_overlap_fraction, fh_out)
 
 
 def merge_overlapping_intervals(d_desc, chrom, alignment_overlap_fraction):
-    startpos_sorted = sorted(d_desc[chrom], key=lambda tup: tup[0])
+    """Greedily merge half-open intervals with sufficient overlap on either side."""
+    startpos_sorted = sorted(d_desc[chrom])
     t_merged = []
     d_mergeddesc = defaultdict(list)
     for currentpos in startpos_sorted:
+        if currentpos[0] < 0 or currentpos[1] <= currentpos[0]:
+            raise ValueError('Invalid BED interval: {!r}'.format(currentpos))
         if not t_merged:
             t_merged.append(currentpos)
             d_mergeddesc[currentpos[0]].extend(d_desc[chrom][currentpos])
         else:
             prevpos = t_merged[-1]
-            if currentpos[0] <= prevpos[1]:
-                overlap_len = min(currentpos[1], prevpos[1]) - currentpos[0] + 1
-                if overlap_len / float(currentpos[1] - currentpos[0] + 1) >= alignment_overlap_fraction \
-                        or overlap_len / float(prevpos[1] - prevpos[0] + 1) >= alignment_overlap_fraction:
+            if currentpos[0] < prevpos[1]:
+                overlap_len = chira_utilities.overlap(currentpos, prevpos)
+                if overlap_len / float(currentpos[1] - currentpos[0]) >= alignment_overlap_fraction \
+                        or overlap_len / float(prevpos[1] - prevpos[0]) >= alignment_overlap_fraction:
                     end = max(prevpos[1], currentpos[1])
                     t_merged[-1] = (prevpos[0], end)  # replace by merged interval
                     d_mergeddesc[prevpos[0]].extend(d_desc[chrom][currentpos])
@@ -286,6 +276,19 @@ def merge_overlapping_intervals(d_desc, chrom, alignment_overlap_fraction):
                 t_merged.append(currentpos)
                 d_mergeddesc[currentpos[0]].extend(d_desc[chrom][currentpos])
     return t_merged, d_mergeddesc
+
+
+def longest_alignments(alignments):
+    """Keep all ties for the longest reference span per read/transcript pair."""
+    parsed = []
+    longest = defaultdict(int)
+    for alignment in alignments:
+        segment, transcript, start, end, strand, cigar = alignment.split(',')
+        key = (segment.rsplit('|', 1)[0], transcript)
+        length = int(end) - int(start)
+        longest[key] = max(longest[key], length)
+        parsed.append((alignment, key, length))
+    return [alignment for alignment, key, length in parsed if length == longest[key]]
 
 
 def merge_loci_overlap(outdir, alignment_overlap_fraction, min_locus_size):
@@ -306,21 +309,7 @@ def merge_loci_overlap(outdir, alignment_overlap_fraction, min_locus_size):
             t_merged, d_mergeddesc = merge_overlapping_intervals(d_desc, chrom, alignment_overlap_fraction)
             del d_desc[chrom]
             for pos in t_merged:
-                d_longest_alignments = defaultdict(int)
-                # choose per locus per transcript only one longest alignment
-                for alignment in d_mergeddesc[pos[0]]:
-                    [segmentid, transcriptid, start, end, tx_strand, cigar] = alignment.split(',')
-                    # cutting out the segment id gives the read id
-                    readid = '|'.join(segmentid.split('|')[:-1])
-                    if int(end) - int(start) >= d_longest_alignments[readid + "\t" + transcriptid]:
-                        d_longest_alignments[readid + "\t" + transcriptid] = int(end) - int(start)
-                l_alignments = []
-                for alignment in d_mergeddesc[pos[0]]:
-                    [segmentid, transcriptid, start, end, tx_strand, cigar] = alignment.split(',')
-                    # cutting out the segment id gives the read id
-                    readid = '|'.join(segmentid.split('|')[:-1])
-                    if int(end) - int(start) >= d_longest_alignments[readid + "\t" + transcriptid]:
-                        l_alignments.append(alignment)
+                l_alignments = longest_alignments(d_mergeddesc[pos[0]])
                 [chromid, strand] = chrom.split("\t")
                 # ignore locus if has not enough alignments
                 if len(l_alignments) < min_locus_size:
@@ -331,7 +320,7 @@ def merge_loci_overlap(outdir, alignment_overlap_fraction, min_locus_size):
 
 
 def write_merged_pos(d_mergeddesc, prev_chrom_strand, fh_out):
-    for merged_pos in d_mergeddesc.keys():
+    for merged_pos in sorted(d_mergeddesc):
         l_alignments = d_mergeddesc[merged_pos]
         [chromid, strand] = prev_chrom_strand.split("\t")
         fh_out.write(
@@ -340,16 +329,13 @@ def write_merged_pos(d_mergeddesc, prev_chrom_strand, fh_out):
 
 
 def merge_loci_blockbuster(outdir, distance, min_cluster_height, min_block_height, scale, alignment_overlap_fraction):
-    os.system("sort -k 1,1 -k 6,6 -k 2n,2 -k 3n,3 " + os.path.join(outdir, "segments.bed") + " > " +
-              os.path.join(outdir, "segments.sorted.bed"))
-    os.system("blockbuster.x " +
-              " -distance " + str(distance) +
-              " -minClusterHeight " + str(min_cluster_height) +
-              " -minBlockHeight " + str(min_block_height) +
-              " -scale " + str(scale) +
-              " -print 1 " +
-              os.path.join(outdir, "segments.sorted.bed") + " > " +
-              os.path.join(outdir, "segments.blockbuster"))
+    with open(os.path.join(outdir, 'segments.sorted.bed'), 'w') as output:
+        run_command(['sort', '-k', '1,1', '-k', '6,6', '-k', '2n,2', '-k', '3n,3',
+                     os.path.join(outdir, 'segments.bed')], stdout=output)
+    with open(os.path.join(outdir, 'segments.blockbuster'), 'w') as output:
+        run_command(['blockbuster.x', '-distance', str(distance),
+                     '-minClusterHeight', str(min_cluster_height), '-minBlockHeight', str(min_block_height),
+                     '-scale', str(scale), '-print', '1', os.path.join(outdir, 'segments.sorted.bed')], stdout=output)
 
     d_desc = defaultdict(lambda: defaultdict(list))
     with open(os.path.join(outdir, "segments.blockbuster")) as fh_blockbuster:
@@ -390,220 +376,164 @@ def merge_loci_blockbuster(outdir, distance, min_cluster_height, min_block_heigh
 
 
 def parse_annotations(gtf, outdir):
-    n_exon = 1
-    exon_rel_start = 0
-    exon_rel_end = 0
-    exon_len = 0
-    prev_transcript_id = None
+    """Build paired exon BEDs independently of annotation feature ordering."""
+    transcripts = defaultdict(set)
 
-    limit_info = dict(gff_type=["exon", "UTR", "CDS", "miRNA", "tRNA"])
+    def visit(features, chromosome):
+        for feature in features:
+            if feature.type in ('exon', 'miRNA', 'tRNA'):
+                ids = feature.qualifiers.get('transcript_id') or feature.qualifiers.get('Name')
+                if not ids:
+                    raise ValueError('Missing transcript_id/Name for {} on {}'.format(feature.type, chromosome))
+                strand = feature.location.strand
+                if strand not in (-1, 1):
+                    raise ValueError('Missing or invalid annotation strand for {!r}'.format(ids[0]))
+                interval = (chromosome, int(feature.location.start), int(feature.location.end), strand)
+                if interval[2] <= interval[1]:
+                    raise ValueError('Empty annotation interval for {!r}'.format(ids[0]))
+                for transcript_id in ids:
+                    transcripts[transcript_id].add(interval)
+            visit(feature.sub_features, chromosome)
 
-    d_attributes = defaultdict(list)
-    d_attributes['tid'] = ['transcript_id', 'Name']
-    d_attributes['gid'] = ['gene_id', 'Alias']
+    with open(gtf) as handle:
+        for record in GFF.parse(handle, limit_info={'gff_type': ['exon', 'miRNA', 'tRNA']}, target_lines=1):
+            visit(record.features, record.id)
 
-    genomic_exons = os.path.join(outdir, "genomic_exons.bed")
-    transcriptomic_exons = os.path.join(outdir, "transcriptomic_exons.bed")
-
-    l_seen_exons = set()
-    with open(gtf) as gff_handle, \
-            open(genomic_exons, "w") as fh_genomic_exons, \
-            open(transcriptomic_exons, "w") as fh_transcriptomic_exons:
-        # Chromosome seq level
-        for rec in GFF.parse(gff_handle, limit_info=limit_info, target_lines=1):
-            # for each selected sub_feature
-            for sub_feature in rec.features:
-                # each qualifier is a list! take the first element
-                for i in d_attributes['tid']:
-                    if i in sub_feature.qualifiers:
-                        transcript_id = sub_feature.qualifiers[i][0]
-                        break
-                # remaining are exon, miRNA and tRNA lines
-                if sub_feature.type == 'exon' or sub_feature.type == 'miRNA' or sub_feature.type == 'tRNA':
-                    # reset the variables if it is a new transcript
-                    if prev_transcript_id != transcript_id:
-                        n_exon = 1
-                        exon_rel_start = 0
-                        exon_rel_end = 0
-                        exon_len = 0
-                    if transcript_id + "_e" + str(n_exon).zfill(3) in l_seen_exons:
-                        continue
-
-                    gene_exon_bed_entry = '\t'.join([rec.id,
-                                                     str(sub_feature.location.start),
-                                                     str(sub_feature.location.end),
-                                                     transcript_id + "_e" + str(n_exon).zfill(3),
-                                                     "1",
-                                                     "-" if str(sub_feature.location.strand) == "-1" else "+"
-                                                     ])
-                    exon_len = sub_feature.location.end - sub_feature.location.start
-                    exon_rel_end = exon_rel_start + exon_len
-                    tx_exon_bed_entry = '\t'.join([transcript_id,
-                                                   str(exon_rel_start),
-                                                   str(exon_rel_end),
-                                                   transcript_id + "_e" + str(n_exon).zfill(3),
-                                                   "1",
-                                                   "-" if str(sub_feature.location.strand) == "-1" else "+"
-                                                   ])
-                    fh_genomic_exons.write(gene_exon_bed_entry + "\n")
-                    fh_transcriptomic_exons.write(tx_exon_bed_entry + "\n")
-
-                    exon_rel_start = exon_rel_end
-                    prev_transcript_id = transcript_id
-                    l_seen_exons.add(transcript_id + "_e" + str(n_exon).zfill(3))
-                    n_exon += 1
-    return
+    with open(os.path.join(outdir, 'genomic_exons.bed'), 'w') as genomic, \
+            open(os.path.join(outdir, 'transcriptomic_exons.bed'), 'w') as transcriptomic:
+        for transcript_id, exons in sorted(transcripts.items()):
+            if len({(exon[0], exon[3]) for exon in exons}) != 1:
+                raise ValueError('Conflicting chromosome/strand for {!r}'.format(transcript_id))
+            strand = '-' if next(iter(exons))[3] == -1 else '+'
+            offset = 0
+            for number, (chromosome, start, end, _) in enumerate(
+                    sorted(exons, key=lambda exon: (exon[1], exon[2]), reverse=strand == '-'), start=1):
+                exon_id = '{}_e{:03d}'.format(transcript_id, number)
+                genomic.write('\t'.join([chromosome, str(start), str(end), exon_id, '1', strand]) + '\n')
+                transcriptomic.write('\t'.join([transcript_id, str(offset), str(offset + end - start),
+                                                exon_id, '1', strand]) + '\n')
+                offset += end - start
 
 
 def transcript_to_genomic_pos(transcriptomic_bed, genomic_bed, f_geneexonbed, f_txexonbed):
-    id2chr = {}
-    exid2start = {}
-    exid2end = {}
-    print("Read in genomic exon features .. ")
-    fh_genomic_exon_bed = open(f_geneexonbed, "r")
-    for line in fh_genomic_exon_bed:
-        f = line.rstrip('\n').split('\t')
-        chrname = f[0]
-        s = int(f[1])
-        e = int(f[2])
-        exid = f[3]
-        match = re.match("(.+?)_e", exid)
-        transcriptid = match.group(1)
-        id2chr[transcriptid] = chrname
-        exid2start[exid] = s
-        exid2end[exid] = e
-    fh_genomic_exon_bed.close()
-
-    print("done")
-    print("Transcripts with exons in annotation:   " + str(len(id2chr)))
-
-    overlapout = transcriptomic_bed.replace(".bed", ".overlap.txt")
-    print("Calculating bed overlap .. ")
-    intersect_command = ("intersectBed -a " + transcriptomic_bed + " -b " + f_txexonbed + " -wb > " + overlapout)
-    print(intersect_command)
-    os.system(intersect_command)
-
-    # ENSMUST00000023614      5301    5319    2175|tag_1004650|1,ENSMUST00000023614,ENSMUSG00000022897,5301,5319 \
-    #       0       +       ENSMUST00000023614      1817    5754    ENSMUST00000023614_e012 0       +
-    prev_readid = None
-    l_withjunctions = []
-    with open(overlapout) as fh_overlapout, open(genomic_bed, "w") as fh_wojunctions:
-        for line in fh_overlapout:
-            # transcriptid, s, e, readid, exonstart, exonend, exonid, pol
-            f = line.rstrip('\n').split('\t')
-            transcriptid = f[0]
-            txstart = int(f[1])
-            txend = int(f[2])
-            readid = f[3]
-            exonstart = int(f[7])
-            exonid = f[9]
-            pol = f[11]
-            if prev_readid and prev_readid != readid:
-                if len(set(l_withjunctions)) == 1:
-                    fh_wojunctions.write(set(l_withjunctions).pop())
-                # for a spliced alignment choose the longest alignment
+    """Convert exon intersections, keeping the longest fragment per alignment."""
+    exons = {}
+    with open(f_geneexonbed) as handle:
+        for line in handle:
+            chromosome, start, end, exon_id, score, strand = line.rstrip('\n').split('\t')
+            exons[exon_id] = chromosome, int(start), int(end)
+    overlapout = transcriptomic_bed + '.overlap.txt'
+    with open(overlapout, 'w') as output:
+        run_command(['intersectBed', '-a', transcriptomic_bed, '-b', f_txexonbed, '-wb'], stdout=output)
+    with open(overlapout) as intersections, open(genomic_bed, 'w') as output:
+        for description, lines in itertools.groupby(intersections, key=lambda line: line.split('\t')[3]):
+            fragments = set()
+            for line in lines:
+                fields = line.rstrip('\n').split('\t')
+                txstart, txend = int(fields[1]), int(fields[2])
+                exonstart, exonend = int(fields[7]), int(fields[8])
+                txstart, txend = max(txstart, exonstart), min(txend, exonend)
+                if txend <= txstart:
+                    continue
+                chromosome, start, end = exons[fields[9]]
+                strand = fields[11]
+                if strand == '+':
+                    genomicstart, genomicend = start + txstart - exonstart, start + txend - exonstart
+                elif strand == '-':
+                    genomicstart, genomicend = end - (txend - exonstart), end - (txstart - exonstart)
                 else:
-                    longest_splice = 0
-                    longest_splice_align = ""
-                    for splice_align in sorted(set(l_withjunctions)):
-                        x = splice_align.split("\t")
-                        if int(x[2]) - int(x[1]) > longest_splice:
-                            longest_splice = int(x[2]) - int(x[1])
-                            longest_splice_align = splice_align
-                    fh_wojunctions.write(longest_splice_align)
-                l_withjunctions.clear()
-
-            # Calculate genomic hit positions.
-            # Plus strand case.
-            if pol == "+":
-                genomicstart = exid2start[exonid] + (txstart - exonstart)
-                genomicend = exid2start[exonid] + (txend - exonstart)
-            # Minus strand case.
-            elif pol == "-":
-                genomicstart = exid2end[exonid] - (txend - exonstart)
-                genomicend = exid2end[exonid] - (txstart - exonstart)
-            else:
-                sys.exit("ERROR: Check polarity " + pol + "in line: " + line + "\n")
-            b = "\t".join([id2chr[transcriptid], str(genomicstart), str(genomicend), readid, "1", pol]) + "\n"
-            l_withjunctions.append(b)
-            prev_readid = readid
-        # write the last segment
-        if len(set(l_withjunctions)) == 1:
-            fh_wojunctions.write(set(l_withjunctions).pop())
-
-    print("done")
-    if os.path.exists(overlapout):
-        os.remove(overlapout)
-
-    return
+                    raise ValueError('Invalid exon strand: {!r}'.format(strand))
+                if fields[5] == '-':
+                    strand = '-' if strand == '+' else '+'
+                fragments.add('\t'.join([chromosome, str(genomicstart), str(genomicend),
+                                          description, '1', strand]) + '\n')
+            if fragments:
+                # Lexicographic tie-breaking matches the existing deterministic policy.
+                output.write(min(fragments, key=lambda row: (-(int(row.split('\t')[2]) -
+                                                               int(row.split('\t')[1])), row)))
+    os.remove(overlapout)
 
 
-if __name__ == "__main__":
+def create_parser():
 
     parser = argparse.ArgumentParser(description='Chimeric Read Annotator: merge alignments and convert coordinates',
-                                     usage='%(prog)s [-h] [-v,--version]',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('-bb', '--block_based', action='store_true', dest='block_based')
+    parser.add_argument('-bb', '--block_based', action='store_true', help='Use Blockbuster-based locus merging')
 
-    parser.add_argument('-b', '--bed', action='store', dest='bed', required=True,
-                        metavar='', help='Input BED file with alignments')
+    parser.add_argument('-b', '--bed', required=True,
+                        metavar='BED', help='Input BED file with alignments grouped by read ID')
 
-    parser.add_argument('-o', '--outdir', action='store', dest='outdir', required=True, metavar='',
+    parser.add_argument('-o', '--outdir', required=True, metavar='DIR',
                         help='Output directory path for the whole analysis')
 
     parser.add_argument('-g', '--gtf', action='store', dest='gtf', required=False,
-                        metavar='', help='Annotation GTF file')
+                        metavar='GTF', help='Annotation GTF/GFF file')
 
-    parser.add_argument('-ao', '--alignment_overlap', action='store', type=chira_utilities.score_float, default=0.7, metavar='',
+    parser.add_argument('-ao', '--alignment_overlap', action='store', type=chira_utilities.score_float, default=0.7,
                         dest='alignment_overlap_fraction',
-                        help='Minimum percentage overlap among BED entries inorder to merge. [0-1.0]')
+                        help='Minimum overlap fraction of either BED interval to merge. [0-1.0]')
 
-    parser.add_argument('-so', '--segment_overlap', action='store', type=chira_utilities.score_float, default=0.7, metavar='',
+    parser.add_argument('-so', '--segment_overlap', action='store', type=chira_utilities.score_float, default=0.7,
                         dest='segment_overlap_fraction',
                         help='Matching read positions with greater than this %% overlap are merged into a segment')
 
-    parser.add_argument('-lt', '--length_threshold', action='store', type=chira_utilities.score_float, default=0.9, metavar='',
+    parser.add_argument('-lt', '--length_threshold', action='store', type=chira_utilities.score_float, default=0.9,
                         dest='length_threshold',
-                        help='Minimum length of the alignments to consider as a fraction of longest alignmnet. [0.8-1.0]')
+                        help='Minimum alignment length as a fraction of the longest alignment. [0-1.0]')
 
-    parser.add_argument('-d', '--distance', action='store', type=int, default=30, metavar='',
+    parser.add_argument('-d', '--distance', action='store', type=int, default=30,
                         dest='distance',
                         help='Blockbuster parameter distance')
 
-    parser.add_argument('-mc', '--min_cluster_height', action='store', type=int, default=10, metavar='',
+    parser.add_argument('-mc', '--min_cluster_height', action='store', type=int, default=10,
                         dest='min_cluster_height',
                         help='Blockbuster parameter minClusterHeight')
 
-    parser.add_argument('-mb', '--min_block_height', action='store', type=int, default=10, metavar='',
+    parser.add_argument('-mb', '--min_block_height', action='store', type=int, default=10,
                         dest='min_block_height',
                         help='Blockbuster parameter minBlockHeight')
 
-    parser.add_argument('-sc', '--scale', action='store', type=chira_utilities.score_float, default=0.1, metavar='',
+    parser.add_argument('-sc', '--scale', action='store', type=chira_utilities.score_float, default=0.1,
                         dest='scale',
                         help='Blockbuster parameter scale')
 
-    parser.add_argument('-co', '--chimeric_overlap', action='store', type=int, default=2, metavar='',
+    parser.add_argument('-co', '--chimeric_overlap', action='store', type=int, default=2,
                         dest='chimeric_overlap',
-                        help='Maximum number of bases allowed between the chimeric segments of a read')
+                        help='Maximum number of overlapping bases allowed between chimeric segments')
 
     parser.add_argument('-f1', '--ref_fasta1', action='store', dest='ref_fasta1', required=False,
-                        metavar='', help='First prioroty fasta file')
+                        metavar='FASTA', help='First reference FASTA file')
 
     parser.add_argument('-f2', '--ref_fasta2', action='store', dest='ref_fasta2', required=False,
-                        metavar='', help='second priority fasta file')
+                        metavar='FASTA', help='Second reference FASTA file')
 
     parser.add_argument("-c", '--chimeric_only', action='store_true', dest='chimeric_only',
                         help="Consider chimeric reads only for merging")
 
-    parser.add_argument('-ls', '--min_locus_size', action='store', type=int, default=1, metavar='',
+    parser.add_argument('-ls', '--min_locus_size', action='store', type=int, default=1,
                         dest='min_locus_size',
-                        help='Minimum number of alignments required per mered locus')
+                        help='Minimum number of alignments required per merged locus (overlap method)')
 
     parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.4.3')
+    return parser
 
-    args = parser.parse_args()
 
+def validate_args(args):
+    if args.ref_fasta2 and not args.ref_fasta1:
+        raise ValueError('--ref_fasta2 requires --ref_fasta1')
+    for name in ('min_locus_size', 'min_cluster_height', 'min_block_height'):
+        if getattr(args, name) <= 0:
+            raise ValueError('--{} must be positive'.format(name))
+    for name in ('distance', 'chimeric_overlap'):
+        if getattr(args, name) < 0:
+            raise ValueError('--{} must be non-negative'.format(name))
+    for path in (args.bed, args.gtf, args.ref_fasta1, args.ref_fasta2):
+        if path and not os.path.isfile(path):
+            raise ValueError('Input file does not exist or is not a regular file: {}'.format(path))
+
+
+def print_args(args):
     print('Input BED file                       : ' + args.bed)
     print('Output directory                     : ' + args.outdir)
     print('Segment overlap fraction             : ' + str(args.segment_overlap_fraction))
@@ -611,7 +541,7 @@ if __name__ == "__main__":
     if args.gtf:
         print('Annotation file                      : ' + args.gtf)
     if args.block_based:
-        print('Merge method                         : blockbuser based')
+        print('Merge method                         : Blockbuster based')
         print('Blockbuster distance                 : ' + str(args.distance))
         print('Blockbuster minClusterHeight         : ' + str(args.min_cluster_height))
         print('Blockbuster minBlockHeight           : ' + str(args.min_block_height))
@@ -627,12 +557,14 @@ if __name__ == "__main__":
         print('2nd priority reference fasta file    : ' + args.ref_fasta2)
     print("===================================================================")
 
-    d_reflen1 = defaultdict()
-    d_reflen2 = defaultdict()
+
+def run_merge(args):
+    os.makedirs(args.outdir, exist_ok=True)
+    d_reflen1 = {}
+    d_reflen2 = {}
     if args.ref_fasta1 and args.ref_fasta2:
         chira_utilities.extract_reflengths(args.ref_fasta1, d_reflen1)
-        if args.ref_fasta2:
-            chira_utilities.extract_reflengths(args.ref_fasta2, d_reflen2)
+        chira_utilities.extract_reflengths(args.ref_fasta2, d_reflen2)
 
     chira_utilities.print_w_time("START: Reads to segments")
     reads_to_segments(args.bed, args.outdir, args.segment_overlap_fraction, args.chimeric_overlap,
@@ -651,14 +583,29 @@ if __name__ == "__main__":
         chira_utilities.print_w_time("END: Convert to genomic coordinates")
         os.remove(os.path.join(args.outdir, "segments.temp.bed"))
     else:
-        os.system(" ".join(["mv", os.path.join(args.outdir, "segments.temp.bed"),
-                            os.path.join(args.outdir, "segments.bed")]))
+        os.replace(os.path.join(args.outdir, 'segments.temp.bed'), os.path.join(args.outdir, 'segments.bed'))
     if args.block_based:
-        chira_utilities.print_w_time("START: blockcuster based merging")
+        chira_utilities.print_w_time("START: Blockbuster based merging")
         merge_loci_blockbuster(args.outdir, args.distance, args.min_cluster_height, args.min_block_height,
                                args.scale, args.alignment_overlap_fraction)
-        chira_utilities.print_w_time("END: blockcuster based merging")
+        chira_utilities.print_w_time("END: Blockbuster based merging")
     else:
         chira_utilities.print_w_time("START: overlap based merging")
         merge_loci_overlap(args.outdir, args.alignment_overlap_fraction, args.min_locus_size)
         chira_utilities.print_w_time("END: overlap based merging")
+
+
+def main(argv=None):
+    parser = create_parser()
+    args = parser.parse_args(argv)
+    try:
+        validate_args(args)
+        print_args(args)
+        run_merge(args)
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        parser.exit(2, '{}: error: {}\n'.format(parser.prog, error))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
