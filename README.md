@@ -62,6 +62,12 @@ The test suite includes real BEDTools and Blockbuster integration checks. These 
   * A tabular  file containing merged alignments
 * Outputs
   * Tabular file containing the reads and their CRLs with TPM values.
+* Quantification behavior
+  * With `--build_crls_too`, eligible loci are grouped using Jaccard similarity of their read-segment sets. All existing CRLs are considered, including CRL 0. `--crl_share 1` requires identical sets; loci with no shared segments remain separate even at cutoff 0.
+  * A second pass retains each locus's highest qualifying CRL shares, including ties. Loci without a qualifying membership become standalone CRLs; empty CRLs are removed before numbering.
+  * Each unique read segment contributes one count to EM, independently of the collapsed FASTA read count. Duplicate alignment rows do not add counts. EM stops when the sum of absolute abundance changes meets `--em_threshold`, or reports an error after 1000 unconverged iterations.
+  * TPM uses the median half-open BED locus length (`end - start`) for each CRL. Nonzero expression is normalized to a total of one million TPM; empty input produces an empty counts file.
+  * Output retains the existing 13-column format and GNU version-sort order. Sorting failures stop processing and preserve intermediate files.
 
 ## chira_extract.py
 * Description: This tool extracts the best chimeric alignments for each read. User can optionally hybridize the loci where the chimeric arms are mapping to. 
