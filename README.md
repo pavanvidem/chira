@@ -3,11 +3,12 @@
 ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as CLASH, CLEAR-CLIP, PARIS, SPLASH etc. Following are the descriptions of the each tool. Here we provide descriptions about the input and ouptput files. For the detailed description of the other parameters please look at the help texts of tools.
 
 ## chira_collapse.py
-* Description: This tool deduplicates the reads from the FASTQ file and writes into a fasta each read once with it's read count.
+* Description: This tool deduplicates reads from a FASTQ file and writes each unique sequence/UMI pair once to FASTA with its read count. Output is sorted by trimmed sequence and UMI for reproducible sequence IDs.
 * Inputs
   * Quality and adapter trimmed FASTQ file
+  * Optional `-u/--umi_len`: number of bases to trim from the 5' end as a UMI (default: 0). The length must be non-negative and strictly less than the length of every read. Reads that would have an empty sequence after trimming cause an error identifying the read, before the output file is opened.
 * Outputs
-  * FASTA file with unique sequences. The headers of the sequence are in the following format: >sequence_id|UMI|read_count
+  * FASTA file with unique sequences. Headers use `>sequence_id|read_count` without UMIs, or `>sequence_id|UMI|read_count` with UMIs. Identical trimmed sequences with different UMIs are kept as separate records.
 
 ## chira_map.py
 * Description: This tool handles the mapping of the reads to reference transcriptome. User can choose between the bwa-mem and CLAN alignment tools.
