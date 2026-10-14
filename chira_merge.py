@@ -45,7 +45,7 @@ def filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, 
     d_closest_chimeric = defaultdict(lambda: 10000)
     # find longest and closest chimeric
     for readpos1, readpos2 in alignments_pairs:
-        if chira_utilities.overlap(readpos1, readpos2) <= chimeric_overlap:
+        if chira_utilities.inclusive_overlap(readpos1, readpos2) <= chimeric_overlap:
             chimera_found = True
             # total length of chimeric segments
             chimeric_length = readpos1[1] - readpos1[0] + readpos2[1] - readpos2[0] + 2
@@ -87,7 +87,7 @@ def filter_alignments(prev_read_alignments, chimeric_overlap, refids1, refids2, 
     # chimeric read
     else:
         for readpos1, readpos2 in alignments_pairs:
-            if chira_utilities.overlap(readpos1, readpos2) > chimeric_overlap:
+            if chira_utilities.inclusive_overlap(readpos1, readpos2) > chimeric_overlap:
                 continue
             chimeric_length = readpos1[1] - readpos1[0] + readpos2[1] - readpos2[0] + 2
             if chimeric_length < longest_chimeric * lt:
@@ -128,10 +128,10 @@ def write_segments(prev_readid, filtered_alignments, segment_overlap_fraction, f
             # check with the first position in this segment
             first_match_start = l_read_pos[0][0]
             first_match_end = l_read_pos[0][1]
-            overlap = max(0, min(first_match_end, current_match_end)
-                          - max(first_match_start, current_match_start))
-            overlap_percent1 = overlap / float(first_match_end - first_match_start)
-            overlap_percent2 = overlap / float(current_match_end - current_match_start)
+            overlap = chira_utilities.inclusive_overlap((first_match_start, first_match_end),
+                                                       (current_match_start, current_match_end))
+            overlap_percent1 = overlap / float(first_match_end - first_match_start + 1)
+            overlap_percent2 = overlap / float(current_match_end - current_match_start + 1)
             # reciprocal overlap is needed, continue if one fails
             if overlap_percent1 < segment_overlap_fraction or \
                     overlap_percent2 < segment_overlap_fraction:
@@ -140,10 +140,10 @@ def write_segments(prev_readid, filtered_alignments, segment_overlap_fraction, f
             # check with the last position in this segment
             last_match_start = l_read_pos[-1][0]
             last_match_end = l_read_pos[-1][1]
-            overlap = max(0, min(last_match_end, current_match_end)
-                          - max(last_match_start, current_match_start))
-            overlap_percent1 = overlap / float(last_match_end - last_match_start)
-            overlap_percent2 = overlap / float(current_match_end - current_match_start)
+            overlap = chira_utilities.inclusive_overlap((last_match_start, last_match_end),
+                                                       (current_match_start, current_match_end))
+            overlap_percent1 = overlap / float(last_match_end - last_match_start + 1)
+            overlap_percent2 = overlap / float(current_match_end - current_match_start + 1)
             if overlap_percent1 >= segment_overlap_fraction and \
                     overlap_percent2 >= segment_overlap_fraction:
                 similar_cigar_found = True
@@ -662,4 +662,3 @@ if __name__ == "__main__":
         chira_utilities.print_w_time("START: overlap based merging")
         merge_loci_overlap(args.outdir, args.alignment_overlap_fraction, args.min_locus_size)
         chira_utilities.print_w_time("END: overlap based merging")
-

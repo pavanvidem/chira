@@ -50,3 +50,11 @@ ChiRA is a set of tools to analyze RNA-RNA interactome experimental data such as
 * Outputs
   * Tabular file of chimeric reads information
   * Tabular file of detected interactions
+
+## Shared coordinate conventions
+
+* BED and parsed annotation intervals are zero-based and end-exclusive. Raw GTF/GFF coordinates are one-based and inclusive before parsing. `chira_utilities.overlap()` uses the half-open convention.
+* CIGAR-derived positions on the original read are one-based and inclusive, including offsets from hard-clipped bases. `match_positions()` returns these positions in original-read orientation on either strand; `inclusive_overlap()` counts their shared bases. Chimera overlap limits and segment overlap fractions use this inclusive convention.
+* `query_length()` includes hard and soft clips to represent the original read span. `aligned_query_length()` counts `M/I/=/X`; `reference_length()` counts `M/D/N/=/X`. The legacy `alignment_length()` counts `M/I/D/=/X` and is retained for existing callers.
+* `alignment_end()` accepts a one-based SAM reference start and returns its inclusive end, which is numerically equal to the zero-based BED exclusive end.
+* CIGAR helpers reject malformed operations, zero-length operations and misplaced clipping. Read match positions require at least one `M`, `=` or `X` operation.
