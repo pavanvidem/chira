@@ -80,6 +80,13 @@ The test suite includes real BEDTools and Blockbuster integration checks. These 
 * Outputs
   * Tabular file of chimeric reads information
   * Tabular file of detected interactions
+* Extraction behavior
+  * Counts must be grouped by read ID. Worker ranges partition whole read groups without gaps or duplication; worker errors stop processing before results are merged. Annotation data is explicitly passed to workers.
+  * Empty counts produce header-only chimera/singleton files. The TPM cutoff uses the existing percentile of distinct CRL TPM values; cutoff 1 selects the maximum value.
+  * Annotation exon lengths use deduplicated half-open intervals. Missing annotation lengths fall back independently to reference FASTA lengths for both chimeras and singletons. UTRs without CDS information remain labeled `UTR`.
+  * BEDTools, IntaRNA and sorting commands are checked. Hybrid coordinates are projected back from oriented sequences, including reverse-strand loci. Sequences are retained when IntaRNA predicts no interaction.
+  * Existing output columns and scoring are preserved: filtering and singleton scores use locus share multiplied by segment probability; chimera arm scores use segment probability and the combined score is their product. Best hits are selected by TPM, retaining ties.
+  * Both `--summarize` and the original `--summerize` spelling are accepted.
 
 ## Shared coordinate conventions
 
